@@ -143,23 +143,39 @@ function hilfe() {
     Dann kommt eine Nachricht bei Start, 25/50/75 %, Fertig und bei Fehlern. Diese Seite: im Safari „Teilen“ → „Zum Home-Bildschirm“.`;
   return true;
 }
-function verbunden(an) {
-  const v = document.getElementById('verb');
-  v.classList.toggle('an', an); v.lastElementChild.textContent = an ? 'live' : 'getrennt';
-}
-async function laden() {
+// Erst alles der letzten 12 h holen, dann live (SSE). iOS (Home-Bildschirm) hält SSE oft nicht offen -> zusätzlich
+// alle 20 s abfragen; „live“ = SSE offen oder letzte Abfrage vor < 60 s geklappt
+let SSE_AN = false, ABFRAGE_OK = 0, SEIT = '12h';
+async function abfragen() {
   try {
-    const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-stand/json?poll=1&since=12h`);
+    const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-stand/json?poll=1&since=${SEIT}`, {cache: 'no-store'});
+    if (!r.ok) throw new Error(r.status);
     for (const z of (await r.text()).split('\n')) {
       if (!z.trim()) continue;
-      try { const m = JSON.parse(z); if (m.event == 'message') aufnehmen(m.message); } catch (e) {}
+      try { const m = JSON.parse(z); if (m.event == 'message') { aufnehmen(m.message); SEIT = m.id; } } catch (e) {}
     }
+    ABFRAGE_OK = Date.now();
   } catch (e) {}
-  zeichnen();
-  const q = new EventSource(`${SERVER}${encodeURIComponent(KANAL)}-stand/sse`);
-  q.onopen = () => verbunden(true);
-  q.onerror = () => verbunden(false);
-  q.onmessage = e => { try { const m = JSON.parse(e.data); if (m.event == 'message') { aufnehmen(m.message); zeichnen(); } } catch (x) {} };
+  zeichnen(); verbunden();
+}
+function verbunden() {
+  const an = SSE_AN || Date.now() - ABFRAGE_OK < 60000, v = document.getElementById('verb');
+  v.classList.toggle('an', an); v.lastElementChild.textContent = an ? 'live' : 'getrennt';
+}
+let QUELLE = null;
+function live() {
+  if (QUELLE) QUELLE.close();
+  QUELLE = new EventSource(`${SERVER}${encodeURIComponent(KANAL)}-stand/sse?since=${SEIT}`);
+  QUELLE.onopen = () => { SSE_AN = true; verbunden(); };
+  QUELLE.onerror = () => { SSE_AN = false; verbunden(); };
+  QUELLE.onmessage = e => { try { const m = JSON.parse(e.data);
+    if (m.event == 'message') { aufnehmen(m.message); SEIT = m.id; zeichnen(); } } catch (x) {} };
+}
+async function laden() {
+  await abfragen();
+  live();
+  setInterval(abfragen, 20000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { abfragen(); live(); } });
 }
 if (hilfe()) laden();
 setInterval(() => { if (Object.keys(GERAETE).length) zeichnen(); }, 15000);   // „vor x min“, kein Lebenszeichen
