@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang=de>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>cadence live</title>
+<meta name=description content="iPod-Updates aus der Ferne mitverfolgen">
+<meta name=theme-color content="#16161b">
+<meta name=apple-mobile-web-app-capable content=yes>
+<meta name=apple-mobile-web-app-status-bar-style content=black-translucent>
+<meta name=apple-mobile-web-app-title content="cadence live">
+<link rel=icon href="logo-64.png">
+<link rel=apple-touch-icon href="logo-180.png">
+<link rel=manifest href="manifest.json">
+<style>
+/* cadence live: zeigt die Stand-Meldungen, die cadence beim iPod-Update an ntfy.sh schickt (fernmeldung.py).
+   Der Kanal steht in der Adresse hinter dem # (nicht im Code dieser Seite). */
+:root { --bg:#111115; --karte:#1d1d24; --rand:#2c2c36; --text:#f2f2f6; --sub:#9a9aaa; --v1:#ff4f8b; --v2:#9b5cff;
+        --ok:#2fbf71; --warn:#ffb020; --err:#ff4f5e; --blau:#4696fa; }
+:root[data-theme="light"] { --bg:#f4f4f7; --karte:#fff; --rand:#e3e3ea; --text:#17171c; --sub:#6b6b78; }
+* { box-sizing:border-box; }
+html, body { margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); max-width:760px; margin:0 auto; }
+header { display:flex; align-items:center; gap:12px; padding:18px 0 14px; }
+header img { width:44px; height:44px; border-radius:11px; box-shadow:0 4px 14px rgba(155,92,255,.35); }
+header h1 { margin:0; font-size:21px; font-weight:800; letter-spacing:-.01em; flex:1; }
+header h1 span { background:linear-gradient(90deg,var(--v1),var(--v2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.verb { font-size:12px; color:var(--sub); display:flex; align-items:center; gap:6px; }
+.verb i { width:8px; height:8px; border-radius:50%; background:var(--sub); }
+.verb.an i { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+.chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px; scrollbar-width:none; }
+.chip { flex:none; display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:12px; border:1px solid var(--rand);
+        background:var(--karte); cursor:pointer; font-weight:600; font-size:14px; color:var(--text); }
+.chip small { color:var(--sub); font-weight:400; }
+.chip.an { border-color:var(--v2); background:linear-gradient(135deg,rgba(255,79,139,.16),rgba(155,92,255,.16)); }
+.punkt { width:9px; height:9px; border-radius:50%; flex:none; }
+.punkt.laeuft { background:var(--blau); animation:puls 1.4s infinite; }
+.punkt.fertig { background:var(--ok); } .punkt.fehler { background:var(--err); } .punkt.still { background:var(--warn); }
+@keyframes puls { 50% { opacity:.35; } }
+.karte { background:var(--karte); border:1px solid var(--rand); border-radius:18px; padding:18px; margin-bottom:14px; }
+.kopf { display:flex; align-items:flex-start; gap:12px; }
+.kopf .wer { flex:1; min-width:0; }
+.kopf .wer b { font-size:18px; display:block; }
+.kopf .wer span { color:var(--sub); font-size:13px; }
+.zahl { font-size:40px; font-weight:800; letter-spacing:-.03em; line-height:1; }
+.zahl small { font-size:18px; color:var(--sub); font-weight:600; }
+.balken { height:12px; border-radius:6px; background:rgba(127,127,140,.18); overflow:hidden; margin:16px 0 8px; }
+.balken div { height:100%; border-radius:6px; background:linear-gradient(90deg,var(--v1),var(--v2)); transition:width .8s ease; }
+.balken.fertig div { background:var(--ok); } .balken.fehler div { background:var(--err); }
+.zeile { display:flex; justify-content:space-between; gap:12px; color:var(--sub); font-size:13px; flex-wrap:wrap; }
+.detail { margin-top:10px; font-size:14px; color:var(--text); overflow-wrap:anywhere; }
+.schritte { margin-top:6px; }
+.schr { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--rand); }
+.schr:last-child { border-bottom:0; }
+.schr .p { width:22px; height:22px; border-radius:50%; flex:none; display:grid; place-items:center; font-size:12px; font-weight:800;
+           border:2px solid var(--rand); color:transparent; }
+.schr.f .p { background:var(--ok); border-color:var(--ok); color:#fff; }
+.schr.l .p { border-color:var(--v2); border-top-color:transparent; animation:dreh 1s linear infinite; }
+.schr.l.stop .p { animation:none; border-color:var(--err); }
+.schr.o { color:var(--sub); }
+.schr.l b { font-weight:700; }
+@keyframes dreh { to { transform:rotate(360deg); } }
+.fehlerbox { border:1px solid var(--err); background:rgba(255,79,94,.1); border-radius:14px; padding:14px; margin-top:14px; }
+.fehlerbox b { color:var(--err); }
+.ok { border:1px solid var(--ok); background:rgba(47,191,113,.1); border-radius:14px; padding:14px; margin-top:14px; }
+details { margin-top:14px; }
+summary { cursor:pointer; color:var(--sub); font-size:14px; }
+pre { margin:8px 0 0; padding:12px; background:rgba(0,0,0,.25); border-radius:10px; font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;
+      white-space:pre-wrap; overflow-wrap:anywhere; color:var(--sub); max-height:320px; overflow:auto; }
+.leer { text-align:center; color:var(--sub); padding:40px 10px; }
+.leer img { width:72px; border-radius:18px; opacity:.85; margin-bottom:12px; }
+.hinweis { font-size:13px; color:var(--sub); }
+.hinweis code { background:rgba(127,127,140,.18); padding:2px 6px; border-radius:6px; color:var(--text); overflow-wrap:anywhere; }
+button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:8px 14px; cursor:pointer; color:#fff;
+         background:linear-gradient(135deg,var(--v1),var(--v2)); }
+input { font:inherit; width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--rand); background:var(--bg); color:var(--text); }
+</style>
+</head>
+<body>
+<header><img src="logo-180.png" alt=""><h1><span>cadence</span> live</h1><div class=verb id=verb><i></i><span>verbinde …</span></div></header>
+<div class=chips id=chips></div>
+<main id=haupt><div class=leer><img src="logo-180.png" alt=""><div>Warte auf Meldungen …</div></div></main>
+<div class="karte hinweis" id=hilfe></div>
+<script>
+const SERVER = 'https://ntfy.sh/';
+const KANAL = decodeURIComponent(location.hash.slice(1)).trim();
+const GERAETE = {};          // id -> letzter Stand
+let WAHL = null, LETZTE = 0;
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const vor = t => { const s = Math.max(0, Date.now() / 1000 - t);
+  return s < 60 ? 'gerade eben' : s < 3600 ? `vor ${Math.round(s / 60)} min` : `vor ${Math.round(s / 3600)} h`; };
+function zustand(g) {
+  if (g.zustand == 'laeuft' && Date.now() / 1000 - g.t > 180) return 'still';
+  return g.zustand;
+}
+function aufnehmen(text) {
+  let g; try { g = JSON.parse(text); } catch (e) { return; }
+  if (!g || g.v != 1 || !g.id) return;
+  const alt = GERAETE[g.id];
+  if (alt && alt.t > g.t) return;
+  GERAETE[g.id] = g;
+  if (!WAHL || (g.zustand == 'laeuft' && GERAETE[WAHL]?.zustand != 'laeuft')) WAHL = g.id;
+}
+function zeichnen() {
+  const ids = Object.keys(GERAETE).sort((a, b) => GERAETE[b].t - GERAETE[a].t);
+  document.getElementById('chips').innerHTML = ids.map(id => { const g = GERAETE[id];
+    return `<div class="chip ${id == WAHL ? 'an' : ''}" data-id="${esc(id)}"><span class="punkt ${zustand(g)}"></span>${esc(g.name)}<small>${esc(g.pc)}</small></div>`; }).join('');
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => { WAHL = c.dataset.id; zeichnen(); });
+  const g = GERAETE[WAHL];
+  if (!g) return;
+  const z = zustand(g), lauf = g.zustand == 'laeuft';
+  const min = Math.round((g.t - g.start) / 60);
+  const rest = lauf && g.gesamt >= 5 ? Math.max(1, Math.round((g.t - g.start) / 60 * (100 - g.gesamt) / g.gesamt)) : null;
+  const titel = {laeuft: 'läuft', fertig: 'fertig', fehler: 'Fehler', still: 'kein Lebenszeichen'}[z];
+  document.getElementById('haupt').innerHTML = `
+  <div class=karte>
+    <div class=kopf><div class=wer><b>${esc(g.name)} · ${esc(g.pc)}</b>
+      <span>${esc(g.art)}${g.von || g.nach ? ` · ${esc(g.von || '?')} → ${esc(g.nach || '?')}` : ''} · ${titel}</span></div>
+      <div class=zahl>${z == 'fertig' ? 100 : g.gesamt}<small> %</small></div></div>
+    <div class="balken ${z == 'fertig' ? 'fertig' : z == 'fehler' ? 'fehler' : ''}"><div style="width:${z == 'fertig' ? 100 : g.gesamt}%"></div></div>
+    <div class=zeile><span>${lauf ? `seit ${min} min` : `Dauer ${min} min`}${rest ? ` · noch ca. ${rest} min` : ''}</span>
+      <span>Stand ${vor(g.t)}</span></div>
+    ${lauf && g.detail ? `<div class=detail>${esc(g.detail)}</div>` : ''}
+    ${z == 'still' ? `<div class=fehlerbox><b>Seit ${vor(g.t).replace('vor ', '')} keine Meldung.</b> Rechner aus, Internet weg oder cadence geschlossen?</div>` : ''}
+    ${z == 'fehler' ? `<div class=fehlerbox><b>✗ ${esc(g.fertig || 'Fehler')}</b><pre>${esc((g.log || []).join('\n'))}</pre></div>` : ''}
+    ${z == 'fertig' ? `<div class=ok><b>✓ Fertig.</b> ${esc(g.fertig || '')}</div>` : ''}
+  </div>
+  <div class=karte><div class=schritte>${(g.schritte || []).map(s => `<div class="schr ${s.z} ${z == 'fehler' ? 'stop' : ''}">
+      <span class=p>${s.z == 'f' ? '✓' : ''}</span>${s.z == 'l' ? `<b>${esc(s.n)}</b>` : esc(s.n)}</div>`).join('')}</div>
+    ${z != 'fehler' ? `<details><summary>Letzte Protokollzeilen</summary><pre>${esc((g.log || []).join('\n'))}</pre></details>` : ''}
+  </div>`;
+}
+function hilfe() {
+  const h = document.getElementById('hilfe');
+  if (!KANAL) {
+    h.innerHTML = `<b>Kanal fehlt.</b> Öffne die Seite mit dem Link aus der Push-Nachricht oder trag den Kanal ein:
+      <div style="display:flex;gap:8px;margin-top:10px"><input id=k placeholder="cadence-…"><button id=kok>Öffnen</button></div>`;
+    document.getElementById('kok').onclick = () => { location.hash = document.getElementById('k').value.trim(); location.reload(); };
+    return false;
+  }
+  h.innerHTML = `<b>Push aufs iPhone:</b> App <b>ntfy</b> installieren → „+“ → Kanal <code>${esc(KANAL)}</code> abonnieren.
+    Dann kommt eine Nachricht bei Start, 25/50/75 %, Fertig und bei Fehlern. Diese Seite: im Safari „Teilen“ → „Zum Home-Bildschirm“.`;
+  return true;
+}
+function verbunden(an) {
+  const v = document.getElementById('verb');
+  v.classList.toggle('an', an); v.lastElementChild.textContent = an ? 'live' : 'getrennt';
+}
+async function laden() {
+  try {
+    const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-stand/json?poll=1&since=12h`);
+    for (const z of (await r.text()).split('\n')) {
+      if (!z.trim()) continue;
+      try { const m = JSON.parse(z); if (m.event == 'message') aufnehmen(m.message); } catch (e) {}
+    }
+  } catch (e) {}
+  zeichnen();
+  const q = new EventSource(`${SERVER}${encodeURIComponent(KANAL)}-stand/sse`);
+  q.onopen = () => verbunden(true);
+  q.onerror = () => verbunden(false);
+  q.onmessage = e => { try { const m = JSON.parse(e.data); if (m.event == 'message') { aufnehmen(m.message); zeichnen(); } } catch (x) {} };
+}
+if (hilfe()) laden();
+setInterval(() => { if (Object.keys(GERAETE).length) zeichnen(); }, 15000);   // „vor x min“, kein Lebenszeichen
+</script>
+</body>
+</html>
