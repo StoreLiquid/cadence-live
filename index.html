@@ -75,10 +75,17 @@ pre { margin:8px 0 0; padding:12px; background:rgba(0,0,0,.25); border-radius:10
 button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:8px 14px; cursor:pointer; color:#fff;
          background:linear-gradient(135deg,var(--v1),var(--v2)); }
 input { font:inherit; width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--rand); background:var(--bg); color:var(--text); }
+.anfrage { border-color:var(--v2); }
+button.zweit { background:transparent; border:1px solid var(--rand); color:var(--text); }
+#anleitung .karte { border-color:var(--v2); }
+#anleitung ol { padding-left:22px; margin:10px 0; } #anleitung li { margin:8px 0; }
+.teilsym { display:inline-block; width:18px; height:18px; vertical-align:-3px; }
 </style>
 </head>
 <body>
 <header><img src="logo-180.png" alt=""><h1><span>cadence</span> live</h1><div class=verb id=verb><i></i><span>verbinde …</span></div></header>
+<div id=anleitung></div>
+<div id=anfragen></div>
 <div class=chips id=chips></div>
 <main id=haupt><div class=leer><img src="logo-180.png" alt=""><div>Warte auf Meldungen …</div></div></main>
 <div class="karte hinweis" id=hilfe></div>
@@ -91,6 +98,9 @@ const KANAL = (() => { let k = decodeURIComponent(location.hash.slice(1)).trim()
 // öffentlicher Schlüssel von cadence-push auf dem Raspberry Pi (Web-Push, iOS 16.4+ in der Home-Bildschirm-App)
 const VAPID = 'BNod-CshBCOcjPhAc4QoVNRpn8w6KOOcOFUKGfqvtVpoG8dwJZE-XNYanwCq0yuJHm6geSb1GuKTcgNBMvBMM0k';
 const GERAETE = {};          // id -> letzter Stand
+const ANFRAGEN = {};         // Rechnername -> Anfrage „möchte cadence live“
+const LINK = location.origin + location.pathname + '#' + KANAL;
+function speicher(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} }
 let WAHL = null, LETZTE = 0;
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const vor = t => { const s = Math.max(0, Date.now() / 1000 - t);
@@ -101,13 +111,33 @@ function zustand(g) {
 }
 function aufnehmen(text) {
   let g; try { g = JSON.parse(text); } catch (e) { return; }
+  if (g && g.v == 1 && g.typ == 'anfrage') {      // „cadence live anfordern“ in cadence gedrückt
+    if (Date.now() / 1000 - g.t < 12 * 3600 && (!ANFRAGEN[g.pc] || ANFRAGEN[g.pc].t < g.t)) ANFRAGEN[g.pc] = g;
+    return;
+  }
   if (!g || g.v != 1 || !g.id) return;
   const alt = GERAETE[g.id];
   if (alt && alt.t > g.t) return;
   GERAETE[g.id] = g;
   if (!WAHL || (g.zustand == 'laeuft' && GERAETE[WAHL]?.zustand != 'laeuft')) WAHL = g.id;
 }
+function anfragenZeichnen() {
+  const a = Object.values(ANFRAGEN).filter(x => +(speicher('anfrage_weg_' + x.pc) || 0) < x.t);
+  const el = document.getElementById('anfragen');
+  el.innerHTML = a.map(x => `<div class="karte anfrage"><b>📲 ${esc(x.pc)} möchte cadence live</b>
+    <div class=hinweis style="margin:4px 0 10px">Schick ihm den Link – dann sieht er seine iPod-Updates selbst.</div>
+    <button data-teilen="${esc(x.pc)}">Link teilen</button> <button class=zweit data-weg="${esc(x.pc)}">Erledigt</button></div>`).join('');
+  el.querySelectorAll('[data-teilen]').forEach(b => b.onclick = async () => {
+    try {
+      if (navigator.share) await navigator.share({title: 'cadence live', text: 'Hier siehst du deine iPod-Updates live:', url: LINK});
+      else { await navigator.clipboard.writeText(LINK); b.textContent = 'Link kopiert ✓'; }
+    } catch (e) {}
+  });
+  el.querySelectorAll('[data-weg]').forEach(b => b.onclick = () => {
+    speicher('anfrage_weg_' + b.dataset.weg, ANFRAGEN[b.dataset.weg].t); anfragenZeichnen(); });
+}
 function zeichnen() {
+  anfragenZeichnen();
   const ids = Object.keys(GERAETE).sort((a, b) => GERAETE[b].t - GERAETE[a].t);
   document.getElementById('chips').innerHTML = ids.map(id => { const g = GERAETE[id];
     return `<div class="chip ${id == WAHL ? 'an' : ''}" data-id="${esc(id)}"><span class="punkt ${zustand(g)}"></span>${esc(g.name)}<small>${esc(g.pc)}</small></div>`; }).join('');
@@ -159,9 +189,10 @@ async function anmelden(abo) {
 }
 async function mitteilungen() {
   const h = document.getElementById('hilfe');
-  if (!KANN_PUSH || !STANDALONE) {
-    h.innerHTML = `<b>Mitteilungen aufs iPhone:</b> Diese Seite in Safari öffnen → „Teilen“ → „Zum Home-Bildschirm“.
-      Dann die App vom Home-Bildschirm starten – dort erscheint der Knopf „Mitteilungen erlauben“.`;
+  if (!KANN_PUSH || !STANDALONE) {     // Anleitung steht oben (nicht doppelt) - hier nur der Weg zurück zu ihr
+    h.innerHTML = `<b>Mitteilungen</b> gibt es in der App vom Home-Bildschirm.
+      <div style="margin-top:10px"><button class=zweit id=anlzeig>So geht's</button></div>`;
+    document.getElementById('anlzeig').onclick = () => { speicher('anleitung_weg', ''); try { localStorage.removeItem('anleitung_weg'); } catch (e) {} anleitung(); scrollTo(0, 0); };
     return;
   }
   const reg = await navigator.serviceWorker.register('sw.js');
@@ -219,6 +250,25 @@ async function laden() {
   setInterval(abfragen, 20000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { abfragen(); live(); } });
 }
+// Beim ersten Öffnen im Browser: Anleitung „als App auf den Home-Bildschirm“ (Nutzer 09.10.2026)
+function anleitung() {
+  const el = document.getElementById('anleitung');
+  if (STANDALONE || speicher('anleitung_weg')) { el.innerHTML = ''; return; }
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const teilen = '<svg class=teilsym viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v8h14v-8"/></svg>';
+  el.innerHTML = `<div class=karte><b>cadence live als App</b>
+    <div class=hinweis style="margin-top:4px">So hast du sie mit Logo auf dem Home-Bildschirm und bekommst Mitteilungen:</div>
+    ${ios ? `<ol><li>Diese Seite in <b>Safari</b> öffnen.</li>
+      <li>Unten auf <b>Teilen</b> ${teilen} tippen.</li>
+      <li><b>„Zum Home-Bildschirm“</b> wählen (evtl. etwas nach unten wischen) → <b>Hinzufügen</b>.</li>
+      <li>Die App <b>cadence live</b> auf dem Home-Bildschirm öffnen und unten <b>„Mitteilungen erlauben“</b> tippen.</li></ol>`
+          : `<ol><li>Oben rechts auf <b>⋮</b> tippen.</li>
+      <li><b>„App installieren“</b> bzw. <b>„Zum Startbildschirm hinzufügen“</b> wählen.</li>
+      <li>Die App <b>cadence live</b> öffnen und unten <b>„Mitteilungen erlauben“</b> tippen.</li></ol>`}
+    <button class=zweit id=anlweg>Verstanden</button></div>`;
+  document.getElementById('anlweg').onclick = () => { speicher('anleitung_weg', '1'); anleitung(); };
+}
+anleitung();
 if (hilfe()) laden();
 setInterval(() => { if (Object.keys(GERAETE).length) zeichnen(); }, 15000);   // „vor x min“, kein Lebenszeichen
 </script>
