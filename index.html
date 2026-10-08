@@ -84,7 +84,12 @@ input { font:inherit; width:100%; padding:10px 12px; border-radius:10px; border:
 <div class="karte hinweis" id=hilfe></div>
 <script>
 const SERVER = 'https://ntfy.sh/';
-const KANAL = decodeURIComponent(location.hash.slice(1)).trim();
+// Kanal hinter dem #; gemerkt, falls die Home-Bildschirm-App ohne # startet
+const KANAL = (() => { let k = decodeURIComponent(location.hash.slice(1)).trim();
+  try { if (k) localStorage.setItem('kanal', k); else k = localStorage.getItem('kanal') || ''; } catch (e) {}
+  return k; })();
+// öffentlicher Schlüssel von cadence-push auf dem Raspberry Pi (Web-Push, iOS 16.4+ in der Home-Bildschirm-App)
+const VAPID = 'BNod-CshBCOcjPhAc4QoVNRpn8w6KOOcOFUKGfqvtVpoG8dwJZE-XNYanwCq0yuJHm6geSb1GuKTcgNBMvBMM0k';
 const GERAETE = {};          // id -> letzter Stand
 let WAHL = null, LETZTE = 0;
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -139,9 +144,46 @@ function hilfe() {
     document.getElementById('kok').onclick = () => { location.hash = document.getElementById('k').value.trim(); location.reload(); };
     return false;
   }
-  h.innerHTML = `<b>Push aufs iPhone:</b> App <b>ntfy</b> installieren → „+“ → Kanal <code>${esc(KANAL)}</code> abonnieren.
-    Dann kommt eine Nachricht bei Start, 25/50/75 %, Fertig und bei Fehlern. Diese Seite: im Safari „Teilen“ → „Zum Home-Bildschirm“.`;
+  mitteilungen();
   return true;
+}
+// Web-Push: Abo beim Pi anmelden (über den ntfy-Kanal KANAL-abo, der Pi liest mit)
+const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+const KANN_PUSH = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+function b64bytes(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); const r = atob(s + '='.repeat((4 - s.length % 4) % 4));
+  return Uint8Array.from(r, c => c.charCodeAt(0)); }
+async function anmelden(abo) {
+  await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-abo',
+    message: JSON.stringify({abo: abo.toJSON(), name: /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : 'Browser'})})});
+  try { localStorage.setItem('abo_gemeldet', Date.now()); } catch (e) {}
+}
+async function mitteilungen() {
+  const h = document.getElementById('hilfe');
+  if (!KANN_PUSH || !STANDALONE) {
+    h.innerHTML = `<b>Mitteilungen aufs iPhone:</b> Diese Seite in Safari öffnen → „Teilen“ → „Zum Home-Bildschirm“.
+      Dann die App vom Home-Bildschirm starten – dort erscheint der Knopf „Mitteilungen erlauben“.`;
+    return;
+  }
+  const reg = await navigator.serviceWorker.register('sw.js');
+  let abo = await reg.pushManager.getSubscription();
+  if (abo && Notification.permission == 'granted') {
+    h.innerHTML = `<b>✓ Mitteilungen sind an.</b> Bei Start, 25/50/75 %, Fertig und Fehlern kommt eine Mitteilung von
+      „cadence live“ – ein Tipp öffnet diese App. Die ntfy-App brauchst du nicht mehr.`;
+    let alt = 0; try { alt = +localStorage.getItem('abo_gemeldet') || 0; } catch (e) {}
+    if (Date.now() - alt > 86400000) anmelden(abo).catch(() => {});   // einmal am Tag auffrischen (Pi-Neuinstallation)
+    return;
+  }
+  h.innerHTML = `<b>Mitteilungen:</b> Einmal erlauben, dann meldet sich cadence live selbst bei Start, 25/50/75 %, Fertig und Fehlern.
+    <div style="margin-top:10px"><button id=pushan>Mitteilungen erlauben</button></div>`;
+  document.getElementById('pushan').onclick = async () => {
+    if (await Notification.requestPermission() != 'granted') {
+      h.innerHTML = '<b>Mitteilungen sind aus.</b> Einschalten: iPhone-Einstellungen → Mitteilungen → cadence live.'; return; }
+    try {
+      abo = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64bytes(VAPID)});
+      await anmelden(abo);
+      mitteilungen();
+    } catch (e) { h.innerHTML = `<b>Hat nicht geklappt:</b> ${esc(e.message || e)}`; }
+  };
 }
 // Erst alles der letzten 12 h holen, dann live (SSE). iOS (Home-Bildschirm) hält SSE oft nicht offen -> zusätzlich
 // alle 20 s abfragen; „live“ = SSE offen oder letzte Abfrage vor < 60 s geklappt
