@@ -138,9 +138,12 @@ const GERAETE = {};          // id -> letzter Stand
 const ANFRAGEN = {};         // Rechnername -> Anfrage „möchte cadence live“
 let RELEASE = null;          // neueste cadence-Version {version, notiz, t}
 let VERLAUF = {eintraege: []};   // letzte fertige Updates
+// der eigene iPod des Betreuers wird nie angezeigt - nur die anderen (Nutzer 09.10.2026, am Namen festgemacht)
+const EIGENE = ['ipod von aaron'];
+const eigener = g => EIGENE.includes(String(g.pc || '').trim().toLowerCase());
 const datum = t => new Date(t * 1000).toLocaleString('de-DE', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
 function verlaufHtml(id) {
-  const v = (VERLAUF.eintraege || []).filter(e => !id || e.id == id).slice(0, 8);
+  const v = (VERLAUF.eintraege || []).filter(e => (!id || e.id == id) && !eigener(e)).slice(0, 8);
   if (!v.length) return '';
   return `<div class=karte><div class=hinweis style="margin-bottom:6px"><b>Letzte Updates</b></div>${v.map(e => `
     <div class=vzeile><span class="punkt ${e.zustand}"></span><span class=vtext>${esc(e.pc || e.name)}${e.von || e.nach ?
@@ -172,6 +175,7 @@ function aufnehmen(text) {
     return;
   }
   if (!g || g.v != 1 || !/^iPod-[0-9a-f]{6}$/.test(g.id || '')) return;   // nur echte iPods (keine Test-Einträge)
+  if (eigener(g)) return;
   const alt = GERAETE[g.id];
   if (alt && alt.t > g.t) return;
   GERAETE[g.id] = g;
