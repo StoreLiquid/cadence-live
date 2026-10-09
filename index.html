@@ -20,7 +20,8 @@
 :root[data-theme="light"] { --bg:#f4f4f7; --karte:#fff; --rand:#e3e3ea; --text:#17171c; --sub:#6b6b78; }
 * { box-sizing:border-box; }
 /* wie eine App: kein Nachfedern/Verrutschen, kein Doppeltipp-Zoom (Nutzer 09.10.2026) */
-html, body { overscroll-behavior:none; overflow-x:hidden; touch-action:manipulation; }
+html, body { overscroll-behavior:none; overflow-x:hidden; touch-action:manipulation; scrollbar-width:none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar, .chips::-webkit-scrollbar, pre::-webkit-scrollbar { display:none; }
 html, body { margin:0; background:var(--bg); color:var(--text);
   font:15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 body { padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); max-width:760px; margin:0 auto; }
@@ -65,6 +66,9 @@ header h1 span { background:linear-gradient(90deg,var(--v1),var(--v2)); -webkit-
 @keyframes dreh { to { transform:rotate(360deg); } }
 .fehlerbox { border:1px solid var(--err); background:rgba(255,79,94,.1); border-radius:14px; padding:14px; margin-top:14px; }
 .fehlerbox b { color:var(--err); }
+.warnbox { border:1px solid var(--warn); background:rgba(255,176,32,.1); border-radius:14px; padding:12px 14px; margin-top:14px; }
+.warnbox b { color:var(--warn); } .wz { display:flex; justify-content:space-between; gap:10px; font-size:13px; margin-top:6px; }
+.wz span:last-child { color:var(--sub); white-space:nowrap; }
 .ok { border:1px solid var(--ok); background:rgba(47,191,113,.1); border-radius:14px; padding:14px; margin-top:14px; }
 details { margin-top:14px; }
 summary { cursor:pointer; color:var(--sub); font-size:14px; }
@@ -186,7 +190,7 @@ function releaseZeichnen() {
   el.innerHTML = `<div class="karte update"><div class=kopf><div class=wer><b>✨ cadence ${esc(r.version)} ist da</b>
       <span>${esc(kopf)}</span></div><button class=zweit id=relweg aria-label="Ausblenden">✕</button></div>
     <ul class=kurzliste>${haupt.map(x => `<li>${esc(x.split(':')[0])}</li>`).join('')}</ul>
-    <details><summary>Alles anzeigen</summary><ul>${haupt.map(li).join('')}</ul>
+    <details data-k="rel"><summary>Alles anzeigen</summary><ul>${haupt.map(li).join('')}</ul>
       ${rest.length ? `<div class=hinweis style="margin-top:8px"><b>Sonstiges</b></div><ul>${rest.map(li).join('')}</ul>` : ''}</details>
     <div class=hinweis style="margin-top:10px">Empfohlen: in cadence am Computer „iPod aktualisieren“.</div></div>`;
   document.getElementById('relweg').onclick = () => { speicher('release_weg_' + r.version, '1'); releaseZeichnen(); };
@@ -209,7 +213,18 @@ function sichtbar(g) {
   if (g.zustand == 'fertig') return alter < 3600;
   return alter < 12 * 3600;
 }
+// beim Neuzeichnen (alle 15-20 s) bleiben aufgeklappte Bereiche offen (Nutzer: „geht von selbst wieder zu“)
+const OFFEN = new Set();
+document.addEventListener('toggle', e => {
+  const d = e.target;
+  if (d.dataset && d.dataset.k) d.open ? OFFEN.add(d.dataset.k) : OFFEN.delete(d.dataset.k);
+}, true);
+function offenLassen() { document.querySelectorAll('details[data-k]').forEach(d => { if (OFFEN.has(d.dataset.k)) d.open = true; }); }
 function zeichnen() {
+  zeichnenInnen();
+  offenLassen();
+}
+function zeichnenInnen() {
   releaseZeichnen();
   anfragenZeichnen();
   const ids = Object.keys(GERAETE).filter(id => sichtbar(GERAETE[id])).sort((a, b) => GERAETE[b].t - GERAETE[a].t);
@@ -243,14 +258,23 @@ function zeichnen() {
     ${z == 'fehler' ? `<div class=fehlerbox><b>✗ ${esc(g.fertig || 'Fehler')}</b><pre>${esc((g.log || []).join('\n'))}</pre>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id=fehlerkopie>Fehler kopieren</button>
       <button class=zweit id=fehlerweg>Erledigt – ausblenden</button></div></div>` : ''}
+    ${(g.ueber || []).length ? `<div class=warnbox><b>⚠ Übersprungen</b>${g.ueber.map(u => `<div class=wz><span>${esc(u[0])}</span>
+      <span>${esc(u[1])}</span></div>`).join('')}</div>` : ''}
     ${z == 'fertig' ? `<div class=ok><b>✓ Fertig.</b> ${esc(g.fertig || '')}</div>` : ''}
   </div>
   <div class=karte><div class=schritte>${(g.schritte || []).map(s => `<div class="schr ${s.z} ${z == 'fehler' ? 'stop' : ''}">
       <span class=p>${s.z == 'f' ? '✓' : ''}</span>${s.z == 'l' ? `<b>${esc(s.n)}</b>` : esc(s.n)}</div>`).join('')}</div>
-    ${z != 'fehler' ? `<details><summary>Letzte Protokollzeilen</summary><pre>${esc((g.log || []).join('\n'))}</pre></details>` : ''}
+    ${z != 'fehler' ? `<details data-k="log-${esc(g.id)}"><summary>Letzte Protokollzeilen</summary><pre>${esc((g.log || []).join('\n'))}</pre>
+      <button class=zweit id=logkopie style="margin-top:8px">Protokoll kopieren</button></details>` : ''}
   </div>${verlaufHtml(g.id)}`;
 }
 document.addEventListener('click', async e => {
+  if (e.target && e.target.id == 'logkopie' && GERAETE[WAHL]) {
+    const g = GERAETE[WAHL];
+    const text = `cadence – ${g.name} · ${g.pc}, ${g.art} ${g.von || '?'} → ${g.nach || '?'}, ${datum(g.t)}\n\n${(g.log || []).join('\n')}`;
+    try { await navigator.clipboard.writeText(text); e.target.textContent = 'Kopiert ✓'; } catch (x) { prompt('Protokoll:', text); }
+    return;
+  }
   if (e.target && e.target.id == 'fehlerkopie' && GERAETE[WAHL]) {      // zum Weiterschicken (z. B. an Claude)
     const g = GERAETE[WAHL];
     const text = `cadence-Fehler – ${g.name} · ${g.pc}, ${g.art} ${g.von || '?'} → ${g.nach || '?'}, ${datum(g.t)}\n` +
