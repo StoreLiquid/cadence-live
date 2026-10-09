@@ -76,6 +76,10 @@ button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:8p
          background:linear-gradient(135deg,var(--v1),var(--v2)); }
 input { font:inherit; width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--rand); background:var(--bg); color:var(--text); }
 .anfrage { border-color:var(--v2); }
+.update { border-color:rgba(155,92,255,.5); background:linear-gradient(160deg,rgba(255,79,139,.10),rgba(155,92,255,.10)); }
+.update .kopf button { padding:4px 10px; font-size:14px; }
+.kurzliste { margin:10px 0 0; padding-left:18px; color:var(--text); } .kurzliste li { margin:3px 0; }
+.update details ul { padding-left:18px; color:var(--sub); font-size:14px; } .update details li { margin:6px 0; }
 button.zweit { background:transparent; border:1px solid var(--rand); color:var(--text); }
 /* Glas-Fenster (Nutzer: halbdurchsichtig mit Unschärfe, „wie Liquid Glass“) */
 .glas { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:20px;
@@ -109,6 +113,7 @@ body.gezogen main, body.gezogen #chips { transition:transform .35s cubic-bezier(
 <header><img src="logo-180.png" alt=""><h1><span>cadence</span> live</h1><div class=verb id=verb><i></i><span>verbinde …</span></div></header>
 <div id=glas></div>
 <div id=ziehen><img src="logo-64.png" alt=""></div>
+<div id=release></div>
 <div id=anfragen></div>
 <div class=chips id=chips></div>
 <main id=haupt><div class=leer><img src="logo-180.png" alt=""><div>Warte auf Meldungen …</div></div></main>
@@ -123,6 +128,7 @@ const KANAL = (() => { let k = decodeURIComponent(location.hash.slice(1)).trim()
 const VAPID = 'BNod-CshBCOcjPhAc4QoVNRpn8w6KOOcOFUKGfqvtVpoG8dwJZE-XNYanwCq0yuJHm6geSb1GuKTcgNBMvBMM0k';
 const GERAETE = {};          // id -> letzter Stand
 const ANFRAGEN = {};         // Rechnername -> Anfrage „möchte cadence live“
+let RELEASE = null;          // neueste cadence-Version {version, notiz, t}
 const LINK = location.origin + location.pathname + '#' + KANAL;
 function speicher(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} }
 let WAHL = null, LETZTE = 0;
@@ -135,6 +141,10 @@ function zustand(g) {
 }
 function aufnehmen(text) {
   let g; try { g = JSON.parse(text); } catch (e) { return; }
+  if (g && g.v == 1 && g.typ == 'release') {      // neue cadence-Version (meldet der Raspberry Pi)
+    if (!RELEASE || RELEASE.t < g.t) RELEASE = g;
+    return;
+  }
   if (g && g.v == 1 && g.typ == 'anfrage') {      // „cadence live anfordern“ in cadence gedrückt
     if (Date.now() / 1000 - g.t < 12 * 3600 && (!ANFRAGEN[g.pc] || ANFRAGEN[g.pc].t < g.t)) ANFRAGEN[g.pc] = g;
     return;
@@ -144,6 +154,24 @@ function aufnehmen(text) {
   if (alt && alt.t > g.t) return;
   GERAETE[g.id] = g;
   if (!WAHL || (g.zustand == 'laeuft' && GERAETE[WAHL]?.zustand != 'laeuft')) WAHL = g.id;
+}
+// Neue cadence-Version: ruhiger Hinweis oben, Hauptpunkte, „Alles anzeigen“ klappt die ganze Notiz auf
+function releaseZeichnen() {
+  const el = document.getElementById('release');
+  const r = RELEASE;
+  if (!r || speicher('release_weg_' + r.version) || Date.now() / 1000 - r.t > 14 * 86400) { el.innerHTML = ''; return; }
+  const z = r.notiz.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  const kopf = z.find(x => !/^[-*]\s/.test(x)) || '';
+  const haupt = z.filter(x => x.startsWith('* ')).map(x => x.slice(2).split(/\s*So geht's:/)[0]);
+  const rest = z.filter(x => x.startsWith('- ')).map(x => x.slice(2));
+  const li = x => { const m = x.match(/^(.{1,45}?):\s+(.*)$/); return `<li>${m ? `<b>${esc(m[1])}:</b> ${esc(m[2])}` : esc(x)}</li>`; };
+  el.innerHTML = `<div class="karte update"><div class=kopf><div class=wer><b>✨ cadence ${esc(r.version)} ist da</b>
+      <span>${esc(kopf)}</span></div><button class=zweit id=relweg aria-label="Ausblenden">✕</button></div>
+    <ul class=kurzliste>${haupt.map(x => `<li>${esc(x.split(':')[0])}</li>`).join('')}</ul>
+    <details><summary>Alles anzeigen</summary><ul>${haupt.map(li).join('')}</ul>
+      ${rest.length ? `<div class=hinweis style="margin-top:8px"><b>Sonstiges</b></div><ul>${rest.map(li).join('')}</ul>` : ''}</details>
+    <div class=hinweis style="margin-top:10px">Empfohlen: in cadence am Computer „iPod aktualisieren“.</div></div>`;
+  document.getElementById('relweg').onclick = () => { speicher('release_weg_' + r.version, '1'); releaseZeichnen(); };
 }
 function anfragenZeichnen() {
   const a = Object.values(ANFRAGEN).filter(x => +(speicher('anfrage_weg_' + x.pc) || 0) < x.t);
@@ -164,6 +192,7 @@ function sichtbar(g) {
   return alter < 12 * 3600;
 }
 function zeichnen() {
+  releaseZeichnen();
   anfragenZeichnen();
   const ids = Object.keys(GERAETE).filter(id => sichtbar(GERAETE[id])).sort((a, b) => GERAETE[b].t - GERAETE[a].t);
   if (!ids.length) {
