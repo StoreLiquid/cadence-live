@@ -144,7 +144,7 @@ const EIGENE = ['ipod von aaron'];
 const eigener = g => EIGENE.includes(String(g.pc || '').trim().toLowerCase());
 const datum = t => new Date(t * 1000).toLocaleString('de-DE', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
 function verlaufHtml(id) {
-  const v = (VERLAUF.eintraege || []).filter(e => (!id || e.id == id) && !eigener(e)).slice(0, 8);
+  const v = (VERLAUF.eintraege || []).filter(e => (!id || e.id == id) && (NUR ? e.id == NUR : !eigener(e))).slice(0, 8);
   if (!v.length) return '';
   return `<div class=karte><div class=hinweis style="margin-bottom:6px"><b>Letzte Updates</b></div>${v.map(e => `
     <div class=vzeile><span class="punkt ${e.zustand}"></span><span class=vtext>${esc(e.pc || e.name)}${e.von || e.nach ?
@@ -152,6 +152,11 @@ function verlaufHtml(id) {
       Math.max(1, Math.round((e.t - e.start) / 60))} min</span></div>`).join('')}</div>`;
 }
 const LINK = location.origin + location.pathname + '#' + KANAL;
+// App eines iPod-Besitzers (Link mit ?nur=<iPod-Kennung>, gemerkt): zeigt nur diesen iPod, keine Anfragen (Nutzer 09.10.2026)
+const NUR = (() => { let n = new URLSearchParams(location.search).get('nur') || '';
+  try { if (n) localStorage.setItem('nur', n); else n = localStorage.getItem('nur') || ''; } catch (e) {}
+  return /^iPod-[0-9a-f]{6}$/.test(n) ? n : ''; })();
+const linkFuer = id => location.origin + location.pathname + (id ? '?nur=' + encodeURIComponent(id) : '') + '#' + KANAL;
 function speicher(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} }
 let WAHL = null, LETZTE = 0;
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -171,11 +176,13 @@ function aufnehmen(text) {
     if (!RELEASE || RELEASE.t < g.t) RELEASE = g;
     return;
   }
-  if (g && g.v == 1 && g.typ == 'anfrage') {      // „cadence live anfordern“ in cadence gedrückt
+  if (g && g.v == 1 && g.typ == 'anfrage') {
+    if (NUR) return;      // „cadence live anfordern“ in cadence gedrückt
     if (Date.now() / 1000 - g.t < 12 * 3600 && (!ANFRAGEN[g.pc] || ANFRAGEN[g.pc].t < g.t)) ANFRAGEN[g.pc] = g;
     return;
   }
   if (!g || g.v != 1 || !/^iPod-[0-9a-f]{6}$/.test(g.id || '')) return;   // nur echte iPods (keine Test-Einträge)
+  if (NUR && g.id != NUR) return;
   const alt = GERAETE[g.id];
   if (alt && alt.t > g.t) return;
   GERAETE[g.id] = g;
@@ -205,7 +212,7 @@ function anfragenZeichnen() {
   el.innerHTML = a.map(x => `<div class="karte anfrage"><b>📲 ${esc(x.pc)} möchte cadence live</b>
     <div class=hinweis style="margin:4px 0 10px">Schick ihm den Link – dann sieht er seine iPod-Updates selbst.</div>
     <button data-teilen="${esc(x.pc)}">Link teilen</button> <button class=zweit data-weg="${esc(x.pc)}">Erledigt</button></div>`).join('');
-  el.querySelectorAll('[data-teilen]').forEach(b => b.onclick = () => teilen(b));
+  el.querySelectorAll('[data-teilen]').forEach(b => b.onclick = () => teilen(b, (ANFRAGEN[b.dataset.teilen] || {}).id));
   el.querySelectorAll('[data-weg]').forEach(b => b.onclick = () => {
     speicher('anfrage_weg_' + b.dataset.weg, ANFRAGEN[b.dataset.weg].t); anfragenZeichnen(); });
 }
@@ -308,7 +315,7 @@ function b64bytes(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); const r = at
   return Uint8Array.from(r, c => c.charCodeAt(0)); }
 async function anmelden(abo) {
   await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-abo',
-    message: JSON.stringify({abo: abo.toJSON(), name: /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : 'Browser'})})});
+    message: JSON.stringify({abo: abo.toJSON(), name: /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : 'Browser', nur: NUR})})});
   try { localStorage.setItem('abo_gemeldet', Date.now()); } catch (e) {}
 }
 async function mitteilungen() {
@@ -406,21 +413,23 @@ function anleitung() {
   document.getElementById('anlweg').onclick = () => { speicher('anleitung_weg', '1'); glas(''); };
 }
 // Tipp auf die Mitteilung „… möchte cadence live“ (?anfrage=Name): gleich das Fenster zum Teilen/Kopieren
-async function teilen(knopf) {
+async function teilen(knopf, id) {
+  const link = linkFuer(id);         // mit der Kennung seines iPods - seine App zeigt dann nur diesen
   try {
-    if (navigator.share) { await navigator.share({title: 'cadence live', text: 'Hier siehst du deine iPod-Updates live:', url: LINK}); return true; }
+    if (navigator.share) { await navigator.share({title: 'cadence live', text: 'Hier siehst du deine iPod-Updates live:', url: link}); return true; }
   } catch (e) { if (e && e.name == 'AbortError') return false; }
-  try { await navigator.clipboard.writeText(LINK); if (knopf) knopf.textContent = 'Link kopiert ✓'; return true; } catch (e) {}
-  prompt('Link kopieren:', LINK); return true;
+  try { await navigator.clipboard.writeText(link); if (knopf) knopf.textContent = 'Link kopiert ✓'; return true; } catch (e) {}
+  prompt('Link kopieren:', link); return true;
 }
 function anfrageFenster(pc) {
   glas(`<h2>📲 ${esc(pc)} möchte cadence live</h2>
     <div class=hinweis style="text-align:center">Schick ihm den Link – dann sieht er seine iPod-Updates selbst.</div>
     <div class=knoepfe><button id=gteilen>Link teilen</button><button class=zweit id=gkopie>Link kopieren</button>
       <button class=zweit id=gzu>Schließen</button></div>`);
-  document.getElementById('gteilen').onclick = async () => { if (await teilen()) fertigAnfrage(); };
+  const id = (ANFRAGEN[pc] || {}).id || new URLSearchParams(location.search).get('id') || '';
+  document.getElementById('gteilen').onclick = async () => { if (await teilen(null, id)) fertigAnfrage(); };
   document.getElementById('gkopie').onclick = async e => {
-    try { await navigator.clipboard.writeText(LINK); e.target.textContent = 'Link kopiert ✓'; } catch (x) { prompt('Link kopieren:', LINK); } };
+    try { await navigator.clipboard.writeText(linkFuer(id)); e.target.textContent = 'Link kopiert ✓'; } catch (x) { prompt('Link kopieren:', linkFuer(id)); } };
   document.getElementById('gzu').onclick = () => fertigAnfrage();
   function fertigAnfrage() { speicher('anfrage_weg_' + pc, Math.floor(Date.now() / 1000)); glas(''); history.replaceState(null, '', location.pathname + location.hash); zeichnen(); }
 }
