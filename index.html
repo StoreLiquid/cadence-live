@@ -138,7 +138,8 @@ const GERAETE = {};          // id -> letzter Stand
 const ANFRAGEN = {};         // Rechnername -> Anfrage „möchte cadence live“
 let RELEASE = null;          // neueste cadence-Version {version, notiz, t}
 let VERLAUF = {eintraege: []};   // letzte fertige Updates
-// der eigene iPod des Betreuers wird nie angezeigt - nur die anderen (Nutzer 09.10.2026, am Namen festgemacht)
+// „Letzte Updates“ ohne den eigenen iPod des Betreuers (Nutzer 09.10.2026, am Namen) - laufende Updates zeigt die App
+// weiter; so sieht z. B. der Bruder in seiner Liste nur seine eigenen Updates
 const EIGENE = ['ipod von aaron'];
 const eigener = g => EIGENE.includes(String(g.pc || '').trim().toLowerCase());
 const datum = t => new Date(t * 1000).toLocaleString('de-DE', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
@@ -175,7 +176,6 @@ function aufnehmen(text) {
     return;
   }
   if (!g || g.v != 1 || !/^iPod-[0-9a-f]{6}$/.test(g.id || '')) return;   // nur echte iPods (keine Test-Einträge)
-  if (eigener(g)) return;
   const alt = GERAETE[g.id];
   if (alt && alt.t > g.t) return;
   GERAETE[g.id] = g;
