@@ -396,6 +396,8 @@ function anfrageFenster(pc) {
   document.getElementById('gzu').onclick = () => fertigAnfrage();
   function fertigAnfrage() { speicher('anfrage_weg_' + pc, Math.floor(Date.now() / 1000)); glas(''); history.replaceState(null, '', location.pathname + location.hash); zeichnen(); }
 }
+let SEITE_LAENGE = 0;       // Länge der geladenen Seite - zum Erkennen einer neuen Fassung
+fetch(location.pathname, {cache: 'no-store'}).then(r => r.text()).then(t => SEITE_LAENGE = t.length).catch(() => {});
 // Runterziehen zum Aktualisieren - iOS hat in Home-Bildschirm-Apps kein eigenes
 (function () {
   const k = document.getElementById('ziehen'), inhalt = () => [document.querySelector('main'), document.getElementById('chips')];
@@ -426,6 +428,11 @@ function anfrageFenster(pc) {
     await new Promise(r => setTimeout(r, Math.max(0, 700 - (Date.now() - t))));   // kurz sichtbar drehen
     k.classList.remove('laedt'); k.classList.add('fertig');
     await new Promise(r => setTimeout(r, 350));
+    // gibt es eine neue Fassung der App? Dann ganz neu laden (vorher kam sie erst nach Schließen + Öffnen)
+    try {
+      const neu = await (await fetch(location.pathname, {cache: 'no-store'})).text();
+      if (neu.length != SEITE_LAENGE) { location.reload(); return; }
+    } catch (e) {}
     setzen(0, 360); laeuft = false;
   });
 })();
