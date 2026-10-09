@@ -127,7 +127,7 @@ function aufnehmen(text) {
     if (Date.now() / 1000 - g.t < 12 * 3600 && (!ANFRAGEN[g.pc] || ANFRAGEN[g.pc].t < g.t)) ANFRAGEN[g.pc] = g;
     return;
   }
-  if (!g || g.v != 1 || !g.id) return;
+  if (!g || g.v != 1 || !/^iPod-[0-9a-f]{6}$/.test(g.id || '')) return;   // nur echte iPods (keine Test-Einträge)
   const alt = GERAETE[g.id];
   if (alt && alt.t > g.t) return;
   GERAETE[g.id] = g;
@@ -143,9 +143,25 @@ function anfragenZeichnen() {
   el.querySelectorAll('[data-weg]').forEach(b => b.onclick = () => {
     speicher('anfrage_weg_' + b.dataset.weg, ANFRAGEN[b.dataset.weg].t); anfragenZeichnen(); });
 }
+// Was die App zeigt (Nutzer 09.10.2026): laufende Updates; fertige noch 1 h; mit Fehler 3 Tage (bis „Erledigt“)
+function sichtbar(g) {
+  const alter = Date.now() / 1000 - g.t;
+  if (speicher('weg_' + g.id + '_' + g.start)) return false;
+  if (g.zustand == 'fehler') return alter < 3 * 86400;
+  if (g.zustand == 'fertig') return alter < 3600;
+  return alter < 12 * 3600;
+}
 function zeichnen() {
   anfragenZeichnen();
-  const ids = Object.keys(GERAETE).sort((a, b) => GERAETE[b].t - GERAETE[a].t);
+  const ids = Object.keys(GERAETE).filter(id => sichtbar(GERAETE[id])).sort((a, b) => GERAETE[b].t - GERAETE[a].t);
+  if (!ids.length) {
+    document.getElementById('chips').innerHTML = '';
+    document.getElementById('haupt').innerHTML = `<div class=leer><img src="logo-180.png" alt="">
+      <div>Gerade läuft kein iPod-Update.</div><div class=hinweis style="margin-top:6px">Läuft eins, siehst du es hier –
+      Updates mit Fehler bleiben 3 Tage stehen.</div></div>`;
+    return;
+  }
+  if (!ids.includes(WAHL)) WAHL = ids[0];
   document.getElementById('chips').innerHTML = ids.map(id => { const g = GERAETE[id];
     return `<div class="chip ${id == WAHL ? 'an' : ''}" data-id="${esc(id)}"><span class="punkt ${zustand(g)}"></span>${esc(g.name)}<small>${esc(g.pc)}</small></div>`; }).join('');
   document.querySelectorAll('.chip').forEach(c => c.onclick = () => { WAHL = c.dataset.id; zeichnen(); });
@@ -165,7 +181,8 @@ function zeichnen() {
       <span>Stand ${vor(g.t)}</span></div>
     ${lauf && g.detail ? `<div class=detail>${esc(g.detail)}</div>` : ''}
     ${z == 'still' ? `<div class=fehlerbox><b>Seit ${vor(g.t).replace('vor ', '')} keine Meldung.</b> Rechner aus, Internet weg oder cadence geschlossen?</div>` : ''}
-    ${z == 'fehler' ? `<div class=fehlerbox><b>✗ ${esc(g.fertig || 'Fehler')}</b><pre>${esc((g.log || []).join('\n'))}</pre></div>` : ''}
+    ${z == 'fehler' ? `<div class=fehlerbox><b>✗ ${esc(g.fertig || 'Fehler')}</b><pre>${esc((g.log || []).join('\n'))}</pre>
+      <button class=zweit id=fehlerweg style="margin-top:10px">Erledigt – ausblenden</button></div>` : ''}
     ${z == 'fertig' ? `<div class=ok><b>✓ Fertig.</b> ${esc(g.fertig || '')}</div>` : ''}
   </div>
   <div class=karte><div class=schritte>${(g.schritte || []).map(s => `<div class="schr ${s.z} ${z == 'fehler' ? 'stop' : ''}">
@@ -173,6 +190,10 @@ function zeichnen() {
     ${z != 'fehler' ? `<details><summary>Letzte Protokollzeilen</summary><pre>${esc((g.log || []).join('\n'))}</pre></details>` : ''}
   </div>`;
 }
+document.addEventListener('click', e => {
+  if (e.target && e.target.id == 'fehlerweg' && GERAETE[WAHL]) {
+    speicher('weg_' + WAHL + '_' + GERAETE[WAHL].start, '1'); WAHL = null; zeichnen(); }
+});
 function hilfe() {
   const h = document.getElementById('hilfe');
   if (!KANAL) {
@@ -226,6 +247,15 @@ async function mitteilungen() {
 // Erst alles der letzten 12 h holen, dann live (SSE). iOS (Home-Bildschirm) hält SSE oft nicht offen -> zusätzlich
 // alle 20 s abfragen; „live“ = SSE offen oder letzte Abfrage vor < 60 s geklappt
 let SSE_AN = false, ABFRAGE_OK = 0, SEIT = '12h';
+async function archiv() {
+  try {
+    const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-archiv/json?poll=1&since=12h`, {cache: 'no-store'});
+    for (const z of (await r.text()).split('\n')) {
+      if (!z.trim()) continue;
+      try { const m = JSON.parse(z); if (m.event == 'message') aufnehmen(m.message); } catch (e) {}
+    }
+  } catch (e) {}
+}
 async function abfragen() {
   try {
     const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-stand/json?poll=1&since=${SEIT}`, {cache: 'no-store'});
@@ -252,6 +282,7 @@ function live() {
     if (m.event == 'message') { aufnehmen(m.message); SEIT = m.id; zeichnen(); } } catch (x) {} };
 }
 async function laden() {
+  await archiv();
   await abfragen();
   live();
   setInterval(abfragen, 20000);
