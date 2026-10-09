@@ -2,6 +2,12 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
+// Seite immer frisch laden (iOS hielt in der Home-Bildschirm-App alte Fassungen fest); ohne Netz: was der Browser hat
+self.addEventListener('fetch', e => {
+  if (e.request.mode != 'navigate') return;
+  e.respondWith(fetch(e.request, {cache: 'no-store'}).catch(() => fetch(e.request)));
+});
+
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (x) { d = {body: e.data ? e.data.text() : ''}; }
