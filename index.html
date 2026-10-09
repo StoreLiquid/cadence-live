@@ -78,6 +78,8 @@ input { font:inherit; width:100%; padding:10px 12px; border-radius:10px; border:
 .anfrage { border-color:var(--v2); }
 .update { border-color:rgba(155,92,255,.5); background:linear-gradient(160deg,rgba(255,79,139,.10),rgba(155,92,255,.10)); }
 .update .kopf button { padding:4px 10px; font-size:14px; }
+.vzeile { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--rand); font-size:14px; }
+.vzeile:first-of-type { border-top:0; } .vtext { flex:1; min-width:0; } .vzeit { color:var(--sub); font-size:12px; white-space:nowrap; }
 .kurzliste { margin:10px 0 0; padding-left:18px; color:var(--text); } .kurzliste li { margin:3px 0; }
 .update details ul { padding-left:18px; color:var(--sub); font-size:14px; } .update details li { margin:6px 0; }
 button.zweit { background:transparent; border:1px solid var(--rand); color:var(--text); }
@@ -129,6 +131,16 @@ const VAPID = 'BNod-CshBCOcjPhAc4QoVNRpn8w6KOOcOFUKGfqvtVpoG8dwJZE-XNYanwCq0yuJH
 const GERAETE = {};          // id -> letzter Stand
 const ANFRAGEN = {};         // Rechnername -> Anfrage „möchte cadence live“
 let RELEASE = null;          // neueste cadence-Version {version, notiz, t}
+let VERLAUF = {eintraege: []};   // letzte fertige Updates
+const datum = t => new Date(t * 1000).toLocaleString('de-DE', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+function verlaufHtml(id) {
+  const v = (VERLAUF.eintraege || []).filter(e => !id || e.id == id).slice(0, 8);
+  if (!v.length) return '';
+  return `<div class=karte><div class=hinweis style="margin-bottom:6px"><b>Letzte Updates</b></div>${v.map(e => `
+    <div class=vzeile><span class="punkt ${e.zustand}"></span><span class=vtext>${esc(e.pc || e.name)}${e.von || e.nach ?
+      ` · ${esc(e.von || '?')} → ${esc(e.nach || '?')}` : ''}</span><span class=vzeit>${datum(e.t)} · ${
+      Math.max(1, Math.round((e.t - e.start) / 60))} min</span></div>`).join('')}</div>`;
+}
 const LINK = location.origin + location.pathname + '#' + KANAL;
 function speicher(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} }
 let WAHL = null, LETZTE = 0;
@@ -141,6 +153,10 @@ function zustand(g) {
 }
 function aufnehmen(text) {
   let g; try { g = JSON.parse(text); } catch (e) { return; }
+  if (g && g.v == 1 && g.typ == 'verlauf') {      // fertige Updates (hebt der Raspberry Pi auf)
+    if (!VERLAUF.t || VERLAUF.t <= g.t) VERLAUF = g;
+    return;
+  }
   if (g && g.v == 1 && g.typ == 'release') {      // neue cadence-Version (meldet der Raspberry Pi)
     if (!RELEASE || RELEASE.t < g.t) RELEASE = g;
     return;
@@ -199,7 +215,7 @@ function zeichnen() {
     document.getElementById('chips').innerHTML = '';
     document.getElementById('haupt').innerHTML = `<div class=leer><img src="logo-180.png" alt="">
       <div>Gerade läuft kein iPod-Update.</div><div class=hinweis style="margin-top:6px">Läuft eins, siehst du es hier –
-      Updates mit Fehler bleiben 3 Tage stehen.</div></div>`;
+      Updates mit Fehler bleiben 3 Tage stehen.</div></div>${verlaufHtml(null)}`;
     return;
   }
   if (!ids.includes(WAHL)) WAHL = ids[0];
@@ -219,19 +235,28 @@ function zeichnen() {
       <div class=zahl>${z == 'fertig' ? 100 : g.gesamt}<small> %</small></div></div>
     <div class="balken ${z == 'fertig' ? 'fertig' : z == 'fehler' ? 'fehler' : ''}"><div style="width:${z == 'fertig' ? 100 : g.gesamt}%"></div></div>
     <div class=zeile><span>${lauf ? `seit ${min} min` : `Dauer ${min} min`}${rest ? ` · noch ca. ${rest} min` : ''}</span>
-      <span>Stand ${vor(g.t)}</span></div>
+      <span>Stand ${vor(g.t)}${g.frei ? ` · ${(g.frei / 1e9).toLocaleString('de-DE', {maximumFractionDigits: 1})} GB frei` : ''}</span></div>
     ${lauf && g.detail ? `<div class=detail>${esc(g.detail)}</div>` : ''}
     ${z == 'still' ? `<div class=fehlerbox><b>Seit ${vor(g.t).replace('vor ', '')} keine Meldung.</b> Rechner aus, Internet weg oder cadence geschlossen?</div>` : ''}
     ${z == 'fehler' ? `<div class=fehlerbox><b>✗ ${esc(g.fertig || 'Fehler')}</b><pre>${esc((g.log || []).join('\n'))}</pre>
-      <button class=zweit id=fehlerweg style="margin-top:10px">Erledigt – ausblenden</button></div>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id=fehlerkopie>Fehler kopieren</button>
+      <button class=zweit id=fehlerweg>Erledigt – ausblenden</button></div></div>` : ''}
     ${z == 'fertig' ? `<div class=ok><b>✓ Fertig.</b> ${esc(g.fertig || '')}</div>` : ''}
   </div>
   <div class=karte><div class=schritte>${(g.schritte || []).map(s => `<div class="schr ${s.z} ${z == 'fehler' ? 'stop' : ''}">
       <span class=p>${s.z == 'f' ? '✓' : ''}</span>${s.z == 'l' ? `<b>${esc(s.n)}</b>` : esc(s.n)}</div>`).join('')}</div>
     ${z != 'fehler' ? `<details><summary>Letzte Protokollzeilen</summary><pre>${esc((g.log || []).join('\n'))}</pre></details>` : ''}
-  </div>`;
+  </div>${verlaufHtml(g.id)}`;
 }
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
+  if (e.target && e.target.id == 'fehlerkopie' && GERAETE[WAHL]) {      // zum Weiterschicken (z. B. an Claude)
+    const g = GERAETE[WAHL];
+    const text = `cadence-Fehler – ${g.name} · ${g.pc}, ${g.art} ${g.von || '?'} → ${g.nach || '?'}, ${datum(g.t)}\n` +
+                 `Schritt: ${(g.schritte || []).find(s => s.z == 'l')?.n || '?'}\n${g.fertig || ''}\n\n${(g.log || []).join('\n')}`;
+    try { await navigator.clipboard.writeText(text); e.target.textContent = 'Kopiert ✓'; }
+    catch (x) { prompt('Fehler kopieren:', text); }
+    return;
+  }
   if (e.target && e.target.id == 'fehlerweg' && GERAETE[WAHL]) {
     speicher('weg_' + WAHL + '_' + GERAETE[WAHL].start, '1'); WAHL = null; zeichnen(); }
 });
