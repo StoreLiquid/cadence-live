@@ -258,6 +258,7 @@ async function anmelden(abo) {
 }
 async function mitteilungen() {
   const h = document.getElementById('hilfe');
+  h.style.display = '';
   if (!KANN_PUSH || !STANDALONE) {     // Anleitung steht oben (nicht doppelt) - hier nur der Weg zurück zu ihr
     h.innerHTML = `<b>Mitteilungen</b> gibt es in der App vom Home-Bildschirm.
       <div style="margin-top:10px"><button class=zweit id=anlzeig>So geht's</button></div>`;
@@ -266,9 +267,8 @@ async function mitteilungen() {
   }
   const reg = await navigator.serviceWorker.register('sw.js');
   let abo = await reg.pushManager.getSubscription();
-  if (abo && Notification.permission == 'granted') {
-    h.innerHTML = `<b>✓ Mitteilungen sind an.</b> Bei Start, 25/50/75 %, Fertig und Fehlern kommt eine Mitteilung von
-      „cadence live“ – ein Tipp öffnet diese App. Die ntfy-App brauchst du nicht mehr.`;
+  if (abo && Notification.permission == 'granted') {      // alles eingerichtet -> Karte weg (Nutzer 09.10.2026)
+    h.innerHTML = ''; h.style.display = 'none';
     let alt = 0; try { alt = +localStorage.getItem('abo_gemeldet') || 0; } catch (e) {}
     if (Date.now() - alt > 86400000) anmelden(abo).catch(() => {});   // einmal am Tag auffrischen (Pi-Neuinstallation)
     return;
