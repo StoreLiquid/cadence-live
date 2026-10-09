@@ -270,7 +270,7 @@ function zeichnenInnen() {
   if (!ids.length) {
     document.getElementById('chips').innerHTML = '';
     document.getElementById('haupt').innerHTML = `<div class=leer><img src="logo-180.png" alt="">
-      <div>Gerade läuft kein iPod-Update.</div><div class=hinweis style="margin-top:6px">Läuft eins, siehst du es hier –
+      <div>Gerade läuft kein iPod-Update und es wird keine Musik aufgespielt.</div><div class=hinweis style="margin-top:6px">Läuft eins, siehst du es hier –
       fertige stehen unten bei „Letzte Updates“.</div></div>${verlaufHtml(null)}`;
     return;
   }
@@ -433,10 +433,10 @@ function info() {
       Wiedergabelisten, Hörbücher, Aussehen (Themes) und die iPod-Software selbst. iPod anstecken, cadence öffnen –
       „iPod aktualisieren“ bringt alles auf den neuesten Stand.</p>
     <h3>cadence live</h3>
-    <p>Diese App zeigt dir ein laufendes iPod-Update <b>live auf dem Handy</b>: wie weit es ist, welcher Schritt gerade
+    <p>Diese App zeigt dir ein laufendes iPod-Update oder das Aufspielen neuer Musik <b>live auf dem Handy</b>: wie weit es ist, welcher Schritt gerade
       dran ist und wie lange es noch ungefähr dauert. Du musst also nicht neben dem Computer sitzen.</p>
     <h3>Die Punkte</h3>
-    <div class=leg>${p('laeuft')}<span><b>blau, blinkt</b> – Update läuft</span></div>
+    <div class=leg>${p('laeuft')}<span><b>blau, blinkt</b> – Update oder Aufspielen läuft</span></div>
     <div class=leg>${p('fertig')}<span><b>grün</b> – fertig</span></div>
     <div class=leg>${p('fehler')}<span><b>rot</b> – Fehler</span></div>
     <div class=leg>${p('still')}<span><b>gelb</b> – seit ein paar Minuten keine Meldung (Computer aus, Internet weg
