@@ -115,10 +115,38 @@ button.zweit { background:transparent; border:1px solid var(--rand); color:var(-
 body.gezogen main, body.gezogen #chips { transition:transform .35s cubic-bezier(.2,.9,.3,1.2); }
 .glas ol { padding-left:22px; margin:12px 0 4px; } .glas li { margin:8px 0; }
 .teilsym { display:inline-block; width:18px; height:18px; vertical-align:-3px; }
+/* Startbild beim Öffnen (Nutzerwahl 09.10.2026: Variante 1 „Puls“) – Lichtlinie, Logo schlägt im Takt, Schrift; Tipp = weg */
+#start { position:fixed; inset:0; z-index:100; display:grid; place-items:center; background:var(--bg); transition:opacity .45s ease; }
+#start.weg { opacity:0; pointer-events:none; }
+#start .linie { position:absolute; left:0; right:0; top:50%; height:2px; margin-top:-46px;
+  background:linear-gradient(90deg,transparent,var(--v1) 30%,var(--v2) 70%,transparent); box-shadow:0 0 14px var(--v1);
+  transform:scaleX(0); animation:slinie .7s ease-out forwards; }
+#start .mitte { text-align:center; position:relative; }
+#start img { width:96px; height:96px; border-radius:24px; display:block; margin:0 auto 14px; box-shadow:0 0 40px rgba(155,92,255,.45);
+  opacity:0; animation:spuls 1.1s ease forwards; }
+#start b { display:block; font-size:38px; font-weight:800; letter-spacing:-.02em; opacity:0; animation:sschrift .5s ease .45s forwards;
+  background:linear-gradient(90deg,var(--v1),var(--v2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+#start span { display:block; font-size:12px; letter-spacing:.35em; color:var(--sub); margin-top:6px; opacity:0; animation:sschrift .5s ease .6s forwards; }
+@keyframes slinie { to { transform:scaleX(1); } }
+@keyframes spuls { 0% { transform:scale(.6); opacity:0; } 35% { transform:scale(1.08); opacity:1; } 50% { transform:scale(1); opacity:1; }
+                   70% { transform:scale(1.06); opacity:1; } 100% { transform:scale(1); opacity:1; } }
+@keyframes sschrift { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+/* „So funktioniert's“ (ⓘ oben rechts) */
+#infoknopf { width:30px; height:30px; padding:0; border-radius:50%; font:700 15px/1 Georgia, serif; font-style:italic; flex:none;
+  background:transparent; border:1px solid var(--rand); color:var(--sub); }
+.glas .fenster.lang { max-height:calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y:auto; text-align:left; scrollbar-width:none; }
+.glas .fenster.lang::-webkit-scrollbar { display:none; }
+.glas .fenster.lang h3 { margin:16px 0 4px; font-size:15px; }
+.glas .fenster.lang p { margin:4px 0; font-size:14px; color:var(--sub); }
+.glas .fenster.lang p b { color:var(--text); }
+.leg { display:flex; align-items:center; gap:10px; font-size:14px; color:var(--sub); margin:5px 0; }
+.leg b { color:var(--text); font-weight:600; }
 </style>
 </head>
 <body>
-<header><img src="logo-180.png" alt=""><h1><span>cadence</span> live</h1><div class=verb id=verb><i></i><span>verbinde …</span></div></header>
+<div id=start><div class=linie></div><div class=mitte><img src="logo-180.png" alt=""><b>cadence</b><span>LIVE</span></div></div>
+<header><img src="logo-180.png" alt=""><h1><span>cadence</span> live</h1><div class=verb id=verb><i></i><span>verbinde …</span></div>
+  <button id=infoknopf aria-label="So funktioniert's">i</button></header>
 <div id=glas></div>
 <div id=ziehen><img src="logo-64.png" alt=""></div>
 <div id=release></div>
@@ -392,10 +420,56 @@ async function laden() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { abfragen(); live(); } });
 }
 // Beim ersten Öffnen im Browser: Anleitung „als App auf den Home-Bildschirm“ (Nutzer 09.10.2026)
-function glas(html) {
+function glas(html, lang) {
   const g = document.getElementById('glas');
-  g.innerHTML = html ? `<div class=glas><div class=fenster><img src="logo-180.png" alt="">${html}</div></div>` : '';
+  g.innerHTML = html ? `<div class=glas><div class="fenster${lang ? ' lang' : ''}"><img src="logo-180.png" alt="">${html}</div></div>` : '';
 }
+// „So funktioniert's“ (Nutzer 09.10.2026: allgemeine Beschreibung, was cadence und die App machen)
+function info() {
+  const p = c => `<span class="punkt ${c}"></span>`;
+  glas(`<h2 style="text-align:center">So funktioniert's</h2>
+    <h3>cadence</h3>
+    <p><b>cadence</b> ist das Programm am Computer (Windows und Mac), das deinen iPod pflegt: Musik aufspielen, Cover,
+      Wiedergabelisten, Hörbücher, Aussehen (Themes) und die iPod-Software selbst. iPod anstecken, cadence öffnen –
+      „iPod aktualisieren“ bringt alles auf den neuesten Stand.</p>
+    <h3>cadence live</h3>
+    <p>Diese App zeigt dir ein laufendes iPod-Update <b>live auf dem Handy</b>: wie weit es ist, welcher Schritt gerade
+      dran ist und wie lange es noch ungefähr dauert. Du musst also nicht neben dem Computer sitzen.</p>
+    <h3>Die Punkte</h3>
+    <div class=leg>${p('laeuft')}<span><b>blau, blinkt</b> – Update läuft</span></div>
+    <div class=leg>${p('fertig')}<span><b>grün</b> – fertig</span></div>
+    <div class=leg>${p('fehler')}<span><b>rot</b> – Fehler</span></div>
+    <div class=leg>${p('still')}<span><b>gelb</b> – seit ein paar Minuten keine Meldung (Computer aus, Internet weg
+      oder cadence geschlossen?)</span></div>
+    <h3>Schritte</h3>
+    <p>Der <b>drehende Kreis</b> ist der Schritt, der gerade läuft, ein <b>Häkchen</b> heißt erledigt.
+      Hörbücher und Cover dauern am längsten. Unter „Letzte Protokollzeilen“ siehst du genau, was cadence gerade macht.</p>
+    <p><b>⚠ Übersprungen</b> – diese Dateien konnten nicht auf den iPod (der Grund steht daneben). Der Rest läuft trotzdem weiter.</p>
+    <h3>Mitteilungen</h3>
+    <p>Wenn du die App auf dem Home-Bildschirm hast und Mitteilungen erlaubst, meldet sie sich beim Start, zwischendurch,
+      wenn das Update fertig ist – und sofort bei einem Fehler. Antippen öffnet die App.</p>
+    <h3>Wenn etwas schiefgeht</h3>
+    <p>Bei einem Fehler auf <b>„Fehler kopieren“</b> tippen und die Nachricht an Aaron schicken. „Erledigt – ausblenden“
+      nimmt die Karte weg.</p>
+    <h3>Sonst noch</h3>
+    <p><b>Letzte Updates</b> – die fertigen Updates der letzten Zeit, mit Dauer.</p>
+    <p><b>✨ Neue Version</b> – gibt es eine neue cadence-Version, steht oben ein Hinweis. Dann am Computer in cadence
+      „iPod aktualisieren“.</p>
+    <p><b>Runterziehen</b> lädt neu.</p>
+    ${NUR ? '' : `<p><b>📲 möchte cadence live</b> – jemand hat in cadence „App anfordern“ gedrückt. „Link teilen“ schickt ihm
+      seinen Link; seine App zeigt dann nur seinen iPod.</p>`}
+    <p style="margin-top:12px">Übertragen werden nur Fortschritt und Protokoll des Updates – keine Musik, keine Dateien.</p>
+    <div class=knoepfe><button id=infozu>Alles klar</button></div>`, true);
+  document.getElementById('infozu').onclick = () => glas('');
+}
+document.getElementById('infoknopf').onclick = info;
+// Startbild: nach gut 2 s ausblenden, Tipp = sofort weg
+(function () {
+  const s = document.getElementById('start');
+  const weg = () => { s.classList.add('weg'); setTimeout(() => s.remove(), 500); };
+  s.onclick = weg;
+  setTimeout(weg, matchMedia('(prefers-reduced-motion: reduce)').matches ? 600 : 2200);
+})();
 function anleitung() {
   if (STANDALONE || speicher('anleitung_weg')) { glas(''); return; }
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
