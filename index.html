@@ -90,6 +90,17 @@ button.zweit { background:transparent; border:1px solid var(--rand); color:var(-
 .glas .knoepfe { display:flex; flex-direction:column; gap:10px; margin-top:16px; }
 .glas .knoepfe button { padding:13px; font-size:16px; border-radius:14px; }
 @keyframes auf { from { opacity:0; } }
+/* Runterziehen zum Aktualisieren (Nutzer 09.10.2026): Logo kommt von oben, dreht sich mit dem Zug, beim Laden dauernd */
+#ziehen { position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 8px); z-index:40; width:44px; height:44px;
+          margin-left:-22px; border-radius:50%; display:grid; place-items:center; pointer-events:none; opacity:0;
+          background:linear-gradient(160deg,rgba(255,255,255,.18),rgba(255,255,255,.06));
+          border:1px solid rgba(255,255,255,.22); -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
+          box-shadow:0 8px 24px rgba(0,0,0,.35); transform:translateY(-60px); }
+#ziehen img { width:28px; height:28px; border-radius:7px; }
+#ziehen.zurueck { transition:transform .35s cubic-bezier(.2,.9,.3,1.2), opacity .35s; }
+#ziehen.laedt img { animation:dreh 0.9s linear infinite; }
+#ziehen.fertig { background:linear-gradient(135deg,var(--v1),var(--v2)); }
+body.gezogen main, body.gezogen #chips { transition:transform .35s cubic-bezier(.2,.9,.3,1.2); }
 .glas ol { padding-left:22px; margin:12px 0 4px; } .glas li { margin:8px 0; }
 .teilsym { display:inline-block; width:18px; height:18px; vertical-align:-3px; }
 </style>
@@ -97,6 +108,7 @@ button.zweit { background:transparent; border:1px solid var(--rand); color:var(-
 <body>
 <header><img src="logo-180.png" alt=""><h1><span>cadence</span> live</h1><div class=verb id=verb><i></i><span>verbinde …</span></div></header>
 <div id=glas></div>
+<div id=ziehen><img src="logo-64.png" alt=""></div>
 <div id=anfragen></div>
 <div class=chips id=chips></div>
 <main id=haupt><div class=leer><img src="logo-180.png" alt=""><div>Warte auf Meldungen …</div></div></main>
@@ -328,6 +340,39 @@ function anfrageFenster(pc) {
   document.getElementById('gzu').onclick = () => fertigAnfrage();
   function fertigAnfrage() { speicher('anfrage_weg_' + pc, Math.floor(Date.now() / 1000)); glas(''); history.replaceState(null, '', location.pathname + location.hash); zeichnen(); }
 }
+// Runterziehen zum Aktualisieren - iOS hat in Home-Bildschirm-Apps kein eigenes
+(function () {
+  const k = document.getElementById('ziehen'), inhalt = () => [document.querySelector('main'), document.getElementById('chips')];
+  let y0 = null, d = 0, laeuft = false;
+  const setzen = (dy, drehen) => {
+    k.style.transform = `translateY(${Math.min(dy, 90) - 60}px) rotate(${drehen}deg)`;
+    k.style.opacity = Math.min(1, dy / 50);
+    inhalt().forEach(e => e && (e.style.transform = `translateY(${Math.min(dy, 90) * 0.5}px)`));
+  };
+  addEventListener('touchstart', e => {
+    if (laeuft || scrollY > 0 || document.querySelector('.glas')) return;
+    y0 = e.touches[0].clientY; d = 0; k.classList.remove('zurueck', 'fertig'); document.body.classList.remove('gezogen');
+  }, {passive: true});
+  addEventListener('touchmove', e => {
+    if (y0 === null) return;
+    d = Math.max(0, (e.touches[0].clientY - y0) * 0.55);
+    if (d > 0) setzen(d, d * 4);
+  }, {passive: true});
+  addEventListener('touchend', async () => {
+    if (y0 === null) return;
+    y0 = null;
+    k.classList.add('zurueck'); document.body.classList.add('gezogen');
+    if (d < 70) { setzen(0, 0); return; }
+    laeuft = true; setzen(70, 0); k.classList.add('laedt');
+    const t = Date.now();
+    await Promise.all([archiv(), abfragen()]);
+    if (STANDALONE && KANN_PUSH) mitteilungen().catch(() => {});
+    await new Promise(r => setTimeout(r, Math.max(0, 700 - (Date.now() - t))));   // kurz sichtbar drehen
+    k.classList.remove('laedt'); k.classList.add('fertig');
+    await new Promise(r => setTimeout(r, 350));
+    setzen(0, 360); laeuft = false;
+  });
+})();
 const ANFRAGE = new URLSearchParams(location.search).get('anfrage');
 if (ANFRAGE) anfrageFenster(ANFRAGE); else anleitung();
 if (hilfe()) laden();
