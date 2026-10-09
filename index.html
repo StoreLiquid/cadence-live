@@ -210,7 +210,7 @@ function sichtbar(g) {
   const alter = Date.now() / 1000 - g.t;
   if (speicher('weg_' + g.id + '_' + g.start)) return false;
   if (g.zustand == 'fehler') return alter < 3 * 86400;
-  if (g.zustand == 'fertig') return alter < 3600;
+  if (g.zustand == 'fertig') return alter < 120;     // fertig -> gleich in „Letzte Updates“ (Nutzer: Karte stehen lassen macht keinen Sinn)
   return alter < 12 * 3600;
 }
 // beim Neuzeichnen (alle 15-20 s) bleiben aufgeklappte Bereiche offen (Nutzer: „geht von selbst wieder zu“)
@@ -232,7 +232,7 @@ function zeichnenInnen() {
     document.getElementById('chips').innerHTML = '';
     document.getElementById('haupt').innerHTML = `<div class=leer><img src="logo-180.png" alt="">
       <div>Gerade läuft kein iPod-Update.</div><div class=hinweis style="margin-top:6px">Läuft eins, siehst du es hier –
-      Updates mit Fehler bleiben 3 Tage stehen.</div></div>${verlaufHtml(null)}`;
+      fertige stehen unten bei „Letzte Updates“.</div></div>${verlaufHtml(null)}`;
     return;
   }
   if (!ids.includes(WAHL)) WAHL = ids[0];
