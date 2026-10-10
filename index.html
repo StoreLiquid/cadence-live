@@ -220,7 +220,7 @@ function aufnehmen(text) {
 function releaseZeichnen() {
   const el = document.getElementById('release');
   const r = RELEASE;
-  if (!r || speicher('release_weg_' + r.version) || Date.now() / 1000 - r.t > 14 * 86400) { el.innerHTML = ''; return; }
+  if (!r || r.weg || speicher('release_weg_' + r.version) || Date.now() / 1000 - r.t > 14 * 86400) { el.innerHTML = ''; return; }   // weg: Release zurückgenommen (Pi, 10.10.2026)
   const z = r.notiz.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
   const kopf = z.find(x => !/^[-*]\s/.test(x)) || '';
   const haupt = z.filter(x => x.startsWith('* ')).map(x => x.slice(2).split(/\s*So geht's:/)[0]);
