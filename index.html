@@ -220,19 +220,33 @@ function aufnehmen(text) {
 function releaseZeichnen() {
   const el = document.getElementById('release');
   const r = RELEASE;
-  if (!r || r.weg || speicher('release_weg_' + r.version) || Date.now() / 1000 - r.t > 14 * 86400) { el.innerHTML = ''; return; }   // weg: Release zurückgenommen (Pi, 10.10.2026)
+  // Nutzer 11.10.2026: der Hinweis bleibt, bis der iPod auf diese Version aktualisiert ist (zum Nachlesen, was neu ist) -
+  // App eines Besitzers: sein iPod, ohne ✕; Betreuer-App: die eigenen iPods, ✕ und 14 Tage wie bisher
+  if (!r || r.weg || aktualisiert(r.version) ||
+      (!NUR && (speicher('release_weg_' + r.version) || Date.now() / 1000 - r.t > 14 * 86400))) { el.innerHTML = ''; return; }   // weg: Release zurückgenommen (Pi, 10.10.2026)
   const z = r.notiz.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
   const kopf = z.find(x => !/^[-*]\s/.test(x)) || '';
   const haupt = z.filter(x => x.startsWith('* ')).map(x => x.slice(2).split(/\s*So geht's:/)[0]);
   const rest = z.filter(x => x.startsWith('- ')).map(x => x.slice(2));
   const li = x => { const m = x.match(/^(.{1,45}?):\s+(.*)$/); return `<li>${m ? `<b>${esc(m[1])}:</b> ${esc(m[2])}` : esc(x)}</li>`; };
   el.innerHTML = `<div class="karte update"><div class=kopf><div class=wer><b>✨ cadence ${esc(r.version)} ist da</b>
-      <span>${esc(kopf)}</span></div><button class=zweit id=relweg aria-label="Ausblenden">✕</button></div>
+      <span>${esc(kopf)}</span></div>${NUR ? '' : '<button class=zweit id=relweg aria-label="Ausblenden">✕</button>'}</div>
     <ul class=kurzliste>${haupt.map(x => `<li>${esc(x.split(':')[0])}</li>`).join('')}</ul>
     <details data-k="rel"><summary>Alles anzeigen</summary><ul>${haupt.map(li).join('')}</ul>
       ${rest.length ? `<div class=hinweis style="margin-top:8px"><b>Sonstiges</b></div><ul>${rest.map(li).join('')}</ul>` : ''}</details>
     <div class=hinweis style="margin-top:10px">Empfohlen: in cadence am Computer „iPod aktualisieren“.</div></div>`;
-  document.getElementById('relweg').onclick = () => { speicher('release_weg_' + r.version, '1'); releaseZeichnen(); };
+  const x = document.getElementById('relweg');
+  if (x) x.onclick = () => { speicher('release_weg_' + r.version, '1'); releaseZeichnen(); };
+}
+// Ist „mein“ iPod schon auf Version v (oder neuer)? Aus „Letzte Updates“ (Pi) und dem letzten Stand
+const vZahl = v => String(v || '').split(/[^0-9]+/).filter(Boolean).map(Number);
+function vGroesserGleich(a, b) { const x = vZahl(a), y = vZahl(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) != (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); }
+  return true; }
+function aktualisiert(v) {
+  const meins = e => NUR ? e.id == NUR : eigener(e);
+  return (VERLAUF.eintraege || []).concat(Object.values(GERAETE))
+    .some(e => meins(e) && e.zustand == 'fertig' && e.nach && vGroesserGleich(e.nach, v));
 }
 function anfragenZeichnen() {
   const a = Object.values(ANFRAGEN).filter(x => +(speicher('anfrage_weg_' + x.pc) || 0) < x.t);
