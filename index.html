@@ -30,6 +30,13 @@ header img { width:44px; height:44px; border-radius:11px; box-shadow:0 4px 14px 
 header h1 { margin:0; font-size:21px; font-weight:800; letter-spacing:-.01em; flex:1; }
 header h1 span { background:linear-gradient(90deg,var(--v1),var(--v2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
 .verb { font-size:12px; color:var(--sub); display:flex; align-items:center; gap:6px; }
+/* Nutzerwahl 11.10.2026 (Vorschlag 1): nach dem Update kleine Pille im Kopf „✨ Neu in X“, bleibt bis zur nächsten Version */
+#neupille { display:none; background:rgba(155,92,255,.16); color:#d9c6ff; border:1px solid rgba(155,92,255,.45);
+  border-radius:999px; padding:5px 10px; font-size:12px; font-weight:600; white-space:nowrap; flex:none; }
+body.neu #neupille { display:block; }
+body.neu .verb span { display:none; }        /* Platz auf dem Handy (auch 360 px): nur der Punkt, Kopf etwas enger */
+body.neu header { gap:8px; } body.neu header img { width:38px; height:38px; } body.neu header h1 { font-size:19px; }
+header h1 { white-space:nowrap; }
 .verb i { width:8px; height:8px; border-radius:50%; background:var(--sub); }
 .verb.an i { background:var(--ok); box-shadow:0 0 8px var(--ok); }
 .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px; scrollbar-width:none; }
@@ -145,7 +152,7 @@ body.gezogen main, body.gezogen #chips { transition:transform .35s cubic-bezier(
 </head>
 <body>
 <div id=start><div class=linie></div><div class=mitte><img src="logo-180.png" alt=""><b>cadence</b><span>LIVE</span></div></div>
-<header><img src="logo-180.png" alt=""><h1><span>cadence</span> live</h1><div class=verb id=verb><i></i><span>verbinde …</span></div>
+<header><img src="logo-180.png" alt=""><h1><span>cadence</span> live</h1><button id=neupille></button><div class=verb id=verb><i></i><span>verbinde …</span></div>
   <button id=infoknopf aria-label="So funktioniert's">i</button></header>
 <div id=glas></div>
 <div id=ziehen><img src="logo-64.png" alt=""></div>
@@ -222,13 +229,20 @@ function releaseZeichnen() {
   const r = RELEASE;
   // Nutzer 11.10.2026: der Hinweis bleibt, bis der iPod auf diese Version aktualisiert ist (zum Nachlesen, was neu ist) -
   // App eines Besitzers: sein iPod, ohne ✕; Betreuer-App: die eigenen iPods, ✕ und 14 Tage wie bisher
-  if (!r || r.weg || aktualisiert(r.version) ||
+  const pille = document.getElementById('neupille');
+  const fertig = r && !r.weg && aktualisiert(r.version);
+  document.body.classList.toggle('neu', !!fertig);       // aktualisiert: statt der Karte die Pille „✨ Neu in X“
+  if (fertig) {
+    pille.textContent = '✨ Neu in ' + r.version;
+    pille.onclick = () => { const n = notiz(r);
+      glas(`<h2 style="text-align:center">Neu in cadence ${esc(r.version)}</h2><p>${esc(n.kopf)}</p><ul>${n.haupt.map(n.li).join('')}</ul>
+        ${n.rest.length ? `<h3>Sonstiges</h3><ul>${n.rest.map(n.li).join('')}</ul>` : ''}
+        <div class=knoepfe><button id=neuzu>Schließen</button></div>`, true);
+      document.getElementById('neuzu').onclick = () => glas(''); };
+  }
+  if (!r || r.weg || fertig ||
       (!NUR && (speicher('release_weg_' + r.version) || Date.now() / 1000 - r.t > 14 * 86400))) { el.innerHTML = ''; return; }   // weg: Release zurückgenommen (Pi, 10.10.2026)
-  const z = r.notiz.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
-  const kopf = z.find(x => !/^[-*]\s/.test(x)) || '';
-  const haupt = z.filter(x => x.startsWith('* ')).map(x => x.slice(2).split(/\s*So geht's:/)[0]);
-  const rest = z.filter(x => x.startsWith('- ')).map(x => x.slice(2));
-  const li = x => { const m = x.match(/^(.{1,45}?):\s+(.*)$/); return `<li>${m ? `<b>${esc(m[1])}:</b> ${esc(m[2])}` : esc(x)}</li>`; };
+  const {kopf, haupt, rest, li} = notiz(r);
   el.innerHTML = `<div class="karte update"><div class=kopf><div class=wer><b>✨ cadence ${esc(r.version)} ist da</b>
       <span>${esc(kopf)}</span></div>${NUR ? '' : '<button class=zweit id=relweg aria-label="Ausblenden">✕</button>'}</div>
     <ul class=kurzliste>${haupt.map(x => `<li>${esc(x.split(':')[0])}</li>`).join('')}</ul>
@@ -237,6 +251,13 @@ function releaseZeichnen() {
     <div class=hinweis style="margin-top:10px">Empfohlen: in cadence am Computer „iPod aktualisieren“.</div></div>`;
   const x = document.getElementById('relweg');
   if (x) x.onclick = () => { speicher('release_weg_' + r.version, '1'); releaseZeichnen(); };
+}
+function notiz(r) {
+  const z = r.notiz.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  return {kopf: z.find(x => !/^[-*]\s/.test(x)) || '',
+    haupt: z.filter(x => x.startsWith('* ')).map(x => x.slice(2).split(/\s*So geht's:/)[0]),
+    rest: z.filter(x => x.startsWith('- ')).map(x => x.slice(2)),
+    li: x => { const m = x.match(/^(.{1,45}?):\s+(.*)$/); return `<li>${m ? `<b>${esc(m[1])}:</b> ${esc(m[2])}` : esc(x)}</li>`; }};
 }
 // Ist „mein“ iPod schon auf Version v (oder neuer)? Aus „Letzte Updates“ (Pi) und dem letzten Stand
 const vZahl = v => String(v || '').split(/[^0-9]+/).filter(Boolean).map(Number);
