@@ -39,6 +39,9 @@ body.neu header { gap:8px; } body.neu header img { width:38px; height:38px; } bo
 header h1 { white-space:nowrap; }
 /* Nachrichten (Nutzer 11.10.2026): Betreuer tippt etwas, die App des iPod-Besitzers bekommt es als Mitteilung + Karte */
 .nachricht { border-color:rgba(70,150,250,.45); background:linear-gradient(180deg,rgba(70,150,250,.12),var(--karte)); }
+.problem { display:flex; gap:12px; margin-top:12px; padding-top:12px; border-top:1px solid var(--rand); }
+.problem img { width:84px; height:112px; object-fit:cover; border-radius:10px; flex:none; cursor:pointer; }
+.problem button { margin-top:8px; padding:4px 10px; font-size:13px; }
 .nachricht .ntext { font-size:17px; margin:6px 0 10px; white-space:pre-wrap; }
 #senden select, #senden textarea, #fotokarte select { width:100%; box-sizing:border-box; background:#15151b; color:var(--text);
   border:1px solid var(--rand); border-radius:12px; padding:10px; font:inherit; margin-top:8px; }
@@ -164,6 +167,7 @@ body.gezogen main, body.gezogen #chips { transition:transform .35s cubic-bezier(
 <div id=ziehen><img src="logo-64.png" alt=""></div>
 <div id=release></div>
 <div id=nachrichten></div>
+<div id=probleme></div>
 <div id=anfragen></div>
 <div class=chips id=chips></div>
 <main id=haupt><div class=leer><img src="logo-180.png" alt=""><div>Warte auf Meldungen …</div></div></main>
@@ -183,6 +187,7 @@ const GERAETE = {};          // id -> letzter Stand
 const ANFRAGEN = {};         // Rechnername -> Anfrage „möchte cadence live“
 let RELEASE = null;          // neueste cadence-Version {version, notiz, t}
 let VERLAUF = {eintraege: []};   // letzte fertige Updates
+const FOTOS = {};           // id + t -> gemeldetes Problem {id, wer, notiz, t, url}
 const NACHRICHTEN = {};      // id + t -> Nachricht vom Betreuer {id, text, t}
 // „Letzte Updates“ ohne den eigenen iPod des Betreuers (Nutzer 09.10.2026, am Namen) - laufende Updates zeigt die App
 // weiter; so sieht z. B. der Bruder in seiner Liste nur seine eigenen Updates
@@ -212,7 +217,7 @@ function zustand(g) {
   if (g.zustand == 'laeuft' && Date.now() / 1000 - g.t > 180) return 'still';
   return g.zustand;
 }
-function aufnehmen(text) {
+function aufnehmen(text, anhang) {
   let g; try { g = JSON.parse(text); } catch (e) { return; }
   if (g && g.v == 1 && g.typ == 'verlauf') {      // fertige Updates (hebt der Raspberry Pi auf)
     if (!VERLAUF.t || VERLAUF.t <= g.t) VERLAUF = g;
@@ -220,6 +225,12 @@ function aufnehmen(text) {
   }
   if (g && g.v == 1 && g.typ == 'release') {      // neue cadence-Version (meldet der Raspberry Pi)
     if (!RELEASE || RELEASE.t < g.t) RELEASE = g;
+    return;
+  }
+  if (g && g.v == 1 && g.typ == 'foto') {        // gemeldetes Problem mit Foto (Anhang im Archiv, legt der Pi hin)
+    const k = g.id + '_' + g.t;
+    if (g.weg) FOTOS[k] = Object.assign({}, FOTOS[k] || g, {weg: true});
+    else if (!FOTOS[k] || !FOTOS[k].weg) FOTOS[k] = Object.assign({}, g, {url: anhang && anhang.url || (FOTOS[k] || {}).url});
     return;
   }
   if (g && g.v == 1 && g.typ == 'nachricht') {    // Nachricht an einen iPod-Besitzer (Nutzer 11.10.2026)
@@ -297,6 +308,28 @@ function nachrichtenZeichnen() {
     <div class=ntext>${esc(x.text)}</div><button class=zweit data-nweg="${x.t}">Erledigt</button></div>`).join('');
   el.querySelectorAll('[data-nweg]').forEach(b => b.onclick = () => { speicher('nachricht_weg_' + b.dataset.nweg, '1'); nachrichtenZeichnen(); });
 }
+// Betreuer-App: gemeldete Probleme (Foto + Notiz) oben, bis „Erledigt“ (Nutzer 11.10.2026)
+function problemeZeichnen() {
+  const el = document.getElementById('probleme');
+  const p = NUR ? [] : Object.values(FOTOS).filter(x => !x.weg && x.url && Date.now() / 1000 - x.t < 7 * 86400)
+    .sort((a, b) => b.t - a.t);
+  const html = p.length ? `<div class="karte nachricht"><b>📷 Gemeldete Probleme</b>${p.map(x => `
+    <div class=problem><img src="${esc(x.url)}" alt="" data-gross="${esc(x.id)}_${x.t}">
+      <div><b>${esc(x.wer || x.id)}</b><div class=vzeit>${datum(x.t)}</div><div>${esc(x.notiz || '(ohne Notiz)')}</div>
+      <button class=zweit data-perledigt="${esc(x.id)}_${x.t}">Erledigt</button></div></div>`).join('')}</div>` : '';
+  if (el.dataset.html == html) return;           // nicht bei jedem Neuzeichnen die Bilder neu laden
+  el.innerHTML = html; el.dataset.html = html;
+  el.querySelectorAll('[data-gross]').forEach(i => i.onclick = () => { const x = FOTOS[i.dataset.gross];
+    glas(`<h2 style="text-align:center">${esc(x.wer || x.id)}</h2><p style="text-align:center">${datum(x.t)} · ${esc(x.notiz || '')}</p>
+      <img src="${esc(x.url)}" alt="" style="width:100%;height:auto;border-radius:12px">
+      <div class=knoepfe><button id=grosszu>Schließen</button></div>`, true);
+    document.getElementById('grosszu').onclick = () => glas(''); });
+  el.querySelectorAll('[data-perledigt]').forEach(b => b.onclick = async () => {
+    const x = FOTOS[b.dataset.perledigt]; b.disabled = true;
+    try { await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-stand',
+      message: JSON.stringify({v: 1, typ: 'foto', id: x.id, t: x.t, weg: true})})}); } catch (e) {}
+    aufnehmen(JSON.stringify({v: 1, typ: 'foto', id: x.id, t: x.t, weg: true})); zeichnen(); });
+}
 // Betreuer-App: Nachricht an einen iPod schreiben (Feld wird nur einmal gebaut - sonst ginge Getipptes beim Neuzeichnen verloren)
 function bekannteIpods() {
   const m = {};
@@ -318,7 +351,7 @@ function fotoZeichnen() {
   if (!Object.keys(ipods).length) { el.innerHTML = ''; return; }
   if (!document.getElementById('fotoknopf')) {
     el.innerHTML = `<div class=karte><b>📷 Problem melden</b>
-      <div class=hinweis style="margin-top:4px">Spinnt der iPod? Foto vom Bildschirm machen – es landet direkt bei Aaron, neben dem Protokoll.</div>
+      <div class=hinweis style="margin-top:4px">Spinnt der iPod? Foto vom Bildschirm machen und kurz dazuschreiben, was los ist.</div>
       ${NUR ? '' : '<select id=fotower></select>'}
       <div style="margin-top:10px"><button id=fotoknopf>Foto aufnehmen</button></div></div>`;
     document.getElementById('fotoknopf').onclick = () => document.getElementById('fotowahl').click();
@@ -364,7 +397,7 @@ document.getElementById('fotowahl').onchange = async e => {
       const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-foto?filename=foto.jpg&message=${encodeURIComponent(JSON.stringify(meta))}`,
         {method: 'PUT', body: blob});
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      st.textContent = 'Gesendet ✓ – liegt gleich bei Aaron.'; setTimeout(zu, 1500);
+      st.textContent = 'Gesendet ✓'; setTimeout(zu, 1500);
     } catch (x) { b.disabled = false; st.textContent = 'Ging nicht (' + (x.message || x) + ') – Internet da?'; }
   };
 };
@@ -450,6 +483,7 @@ function zeichnen() {
 function zeichnenInnen() {
   releaseZeichnen();
   nachrichtenZeichnen();
+  problemeZeichnen();
   anfragenZeichnen();
   sendenZeichnen();
   fotoZeichnen();
@@ -570,7 +604,7 @@ async function archiv() {
     const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-archiv/json?poll=1&since=12h`, {cache: 'no-store'});
     for (const z of (await r.text()).split('\n')) {
       if (!z.trim()) continue;
-      try { const m = JSON.parse(z); if (m.event == 'message') aufnehmen(m.message); } catch (e) {}
+      try { const m = JSON.parse(z); if (m.event == 'message') aufnehmen(m.message, m.attachment); } catch (e) {}
     }
   } catch (e) {}
 }
