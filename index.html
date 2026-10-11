@@ -37,6 +37,12 @@ body.neu #neupille { display:block; }
 body.neu .verb span { display:none; }        /* Platz auf dem Handy (auch 360 px): nur der Punkt, Kopf etwas enger */
 body.neu header { gap:8px; } body.neu header img { width:38px; height:38px; } body.neu header h1 { font-size:19px; }
 header h1 { white-space:nowrap; }
+/* Nachrichten (Nutzer 11.10.2026): Betreuer tippt etwas, die App des iPod-Besitzers bekommt es als Mitteilung + Karte */
+.nachricht { border-color:rgba(70,150,250,.45); background:linear-gradient(180deg,rgba(70,150,250,.12),var(--karte)); }
+.nachricht .ntext { font-size:17px; margin:6px 0 10px; white-space:pre-wrap; }
+#senden select, #senden textarea { width:100%; box-sizing:border-box; background:#15151b; color:var(--text);
+  border:1px solid var(--rand); border-radius:12px; padding:10px; font:inherit; margin-top:8px; }
+#senden textarea { min-height:70px; resize:vertical; }
 .verb i { width:8px; height:8px; border-radius:50%; background:var(--sub); }
 .verb.an i { background:var(--ok); box-shadow:0 0 8px var(--ok); }
 .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px; scrollbar-width:none; }
@@ -157,9 +163,11 @@ body.gezogen main, body.gezogen #chips { transition:transform .35s cubic-bezier(
 <div id=glas></div>
 <div id=ziehen><img src="logo-64.png" alt=""></div>
 <div id=release></div>
+<div id=nachrichten></div>
 <div id=anfragen></div>
 <div class=chips id=chips></div>
 <main id=haupt><div class=leer><img src="logo-180.png" alt=""><div>Warte auf Meldungen …</div></div></main>
+<div id=senden></div>
 <div class="karte hinweis" id=hilfe></div>
 <script>
 const SERVER = 'https://ntfy.sh/';
@@ -173,6 +181,7 @@ const GERAETE = {};          // id -> letzter Stand
 const ANFRAGEN = {};         // Rechnername -> Anfrage „möchte cadence live“
 let RELEASE = null;          // neueste cadence-Version {version, notiz, t}
 let VERLAUF = {eintraege: []};   // letzte fertige Updates
+const NACHRICHTEN = {};      // id + t -> Nachricht vom Betreuer {id, text, t}
 // „Letzte Updates“ ohne den eigenen iPod des Betreuers (Nutzer 09.10.2026, am Namen) - laufende Updates zeigt die App
 // weiter; so sieht z. B. der Bruder in seiner Liste nur seine eigenen Updates
 const EIGENE = ['ipod von aaron'];
@@ -209,6 +218,11 @@ function aufnehmen(text) {
   }
   if (g && g.v == 1 && g.typ == 'release') {      // neue cadence-Version (meldet der Raspberry Pi)
     if (!RELEASE || RELEASE.t < g.t) RELEASE = g;
+    return;
+  }
+  if (g && g.v == 1 && g.typ == 'nachricht') {    // Nachricht an einen iPod-Besitzer (Nutzer 11.10.2026)
+    if (!/^iPod-[0-9a-f]{6}$/.test(g.id || '') || (NUR && g.id != NUR)) return;
+    NACHRICHTEN[g.id + '_' + g.t] = g;
     return;
   }
   if (g && g.v == 1 && g.typ == 'anfrage') {
@@ -269,6 +283,51 @@ function aktualisiert(v) {
   return (VERLAUF.eintraege || []).concat(Object.values(GERAETE))
     .some(e => meins(e) && e.zustand == 'fertig' && e.nach && vGroesserGleich(e.nach, v));
 }
+// App des Besitzers: Nachrichten der letzten 7 Tage als Karte oben, bis „Erledigt“
+function nachrichtenZeichnen() {
+  const el = document.getElementById('nachrichten');
+  if (!NUR) { el.innerHTML = ''; return; }
+  const n = Object.values(NACHRICHTEN).filter(x => Date.now() / 1000 - x.t < 7 * 86400 && !speicher('nachricht_weg_' + x.t))
+    .sort((a, b) => b.t - a.t).slice(0, 3);
+  el.innerHTML = n.map(x => `<div class="karte nachricht"><b>💬 Nachricht von Aaron</b><span class=vzeit style="float:right">${datum(x.t)}</span>
+    <div class=ntext>${esc(x.text)}</div><button class=zweit data-nweg="${x.t}">Erledigt</button></div>`).join('');
+  el.querySelectorAll('[data-nweg]').forEach(b => b.onclick = () => { speicher('nachricht_weg_' + b.dataset.nweg, '1'); nachrichtenZeichnen(); });
+}
+// Betreuer-App: Nachricht an einen iPod schreiben (Feld wird nur einmal gebaut - sonst ginge Getipptes beim Neuzeichnen verloren)
+function bekannteIpods() {
+  const m = {};
+  for (const e of (VERLAUF.eintraege || []).concat(Object.values(GERAETE)))
+    if (/^iPod-[0-9a-f]{6}$/.test(e.id || '') && !eigener(e) && !m[e.id]) m[e.id] = `${e.name || 'iPod'}${e.pc ? ' · ' + e.pc : ''}`;
+  return m;
+}
+function sendenZeichnen() {
+  const el = document.getElementById('senden');
+  const ipods = bekannteIpods();
+  if (NUR || !Object.keys(ipods).length) { el.innerHTML = ''; return; }
+  if (!document.getElementById('nwer')) {
+    el.innerHTML = `<div class=karte><b>💬 Nachricht schicken</b>
+      <div class=hinweis style="margin-top:4px">Kommt als Mitteilung in seiner cadence-live-App an.</div>
+      <select id=nwer></select><textarea id=ntext maxlength=500 placeholder="z. B. Wähl mal ein anderes Theme aus"></textarea>
+      <div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button id=nsenden>Senden</button><span class=hinweis id=nstatus></span></div></div>`;
+    document.getElementById('nsenden').onclick = nachrichtSenden;
+  }
+  const s = document.getElementById('nwer'), alt = s.value;
+  const html = Object.entries(ipods).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
+  if (s.dataset.html != html) { s.innerHTML = html; s.dataset.html = html; if (ipods[alt]) s.value = alt; }
+}
+async function nachrichtSenden() {
+  const id = document.getElementById('nwer').value, feld = document.getElementById('ntext'), st = document.getElementById('nstatus');
+  const text = feld.value.trim();
+  if (!text) { feld.focus(); return; }
+  const n = {v: 1, typ: 'nachricht', id, text, t: Math.floor(Date.now() / 1000)};
+  try {
+    // Mitteilung (der Pi schickt sie nur an die App dieses iPods) + Karte in seiner App
+    await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL, title: '💬 Nachricht von Aaron', message: text,
+      tags: ['geraet-' + id, 'nachricht'], click: linkFuer(id)})});
+    await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-stand', message: JSON.stringify(n)})});
+    feld.value = ''; st.textContent = 'Gesendet ✓';
+  } catch (e) { st.textContent = 'Ging nicht – Internet da?'; }
+}
 function anfragenZeichnen() {
   const a = Object.values(ANFRAGEN).filter(x => +(speicher('anfrage_weg_' + x.pc) || 0) < x.t);
   const el = document.getElementById('anfragen');
@@ -300,7 +359,9 @@ function zeichnen() {
 }
 function zeichnenInnen() {
   releaseZeichnen();
+  nachrichtenZeichnen();
   anfragenZeichnen();
+  sendenZeichnen();
   const ids = Object.keys(GERAETE).filter(id => sichtbar(GERAETE[id])).sort((a, b) => GERAETE[b].t - GERAETE[a].t);
   if (!ids.length) {
     document.getElementById('chips').innerHTML = '';
@@ -398,7 +459,7 @@ async function mitteilungen() {
     if (Date.now() - alt > 86400000) anmelden(abo).catch(() => {});   // einmal am Tag auffrischen (Pi-Neuinstallation)
     return;
   }
-  h.innerHTML = `<b>Mitteilungen:</b> Einmal erlauben, dann meldet sich cadence live selbst bei Start, 25/50/75 %, Fertig und Fehlern.
+  h.innerHTML = `<b>Mitteilungen:</b> Einmal erlauben, dann meldet sich cadence live selbst bei Start, Fertig, Fehlern und Nachrichten.
     <div style="margin-top:10px"><button id=pushan>Mitteilungen erlauben</button></div>`;
   document.getElementById('pushan').onclick = async () => {
     if (await Notification.requestPermission() != 'granted') {
