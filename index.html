@@ -222,7 +222,9 @@ function aufnehmen(text) {
   }
   if (g && g.v == 1 && g.typ == 'nachricht') {    // Nachricht an einen iPod-Besitzer (Nutzer 11.10.2026)
     if (!/^iPod-[0-9a-f]{6}$/.test(g.id || '') || (NUR && g.id != NUR)) return;
-    NACHRICHTEN[g.id + '_' + g.t] = g;
+    const k = g.id + '_' + g.t;      // weg: vom Betreuer zurückgezogen (bleibt weg, egal in welcher Reihenfolge es ankommt)
+    if (g.weg) NACHRICHTEN[k] = Object.assign({}, NACHRICHTEN[k] || g, {weg: true});
+    else if (!NACHRICHTEN[k]) NACHRICHTEN[k] = g;
     return;
   }
   if (g && g.v == 1 && g.typ == 'anfrage') {
@@ -287,7 +289,7 @@ function aktualisiert(v) {
 function nachrichtenZeichnen() {
   const el = document.getElementById('nachrichten');
   if (!NUR) { el.innerHTML = ''; return; }
-  const n = Object.values(NACHRICHTEN).filter(x => Date.now() / 1000 - x.t < 7 * 86400 && !speicher('nachricht_weg_' + x.t))
+  const n = Object.values(NACHRICHTEN).filter(x => !x.weg && x.text && Date.now() / 1000 - x.t < 7 * 86400 && !speicher('nachricht_weg_' + x.t))
     .sort((a, b) => b.t - a.t).slice(0, 3);
   el.innerHTML = n.map(x => `<div class="karte nachricht"><b>💬 Nachricht von Aaron</b><span class=vzeit style="float:right">${datum(x.t)}</span>
     <div class=ntext>${esc(x.text)}</div><button class=zweit data-nweg="${x.t}">Erledigt</button></div>`).join('');
@@ -308,12 +310,33 @@ function sendenZeichnen() {
     el.innerHTML = `<div class=karte><b>💬 Nachricht schicken</b>
       <div class=hinweis style="margin-top:4px">Kommt als Mitteilung in seiner cadence-live-App an.</div>
       <select id=nwer></select><textarea id=ntext maxlength=500 placeholder="z. B. Wähl mal ein anderes Theme aus"></textarea>
-      <div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button id=nsenden>Senden</button><span class=hinweis id=nstatus></span></div></div>`;
+      <div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button id=nsenden>Senden</button><span class=hinweis id=nstatus></span></div>
+      <div id=ngesendet></div></div>`;
     document.getElementById('nsenden').onclick = nachrichtSenden;
+  }
+  // gesendete Nachrichten (7 Tage) mit „Zurückziehen“ (Nutzer 11.10.2026)
+  const g = Object.values(NACHRICHTEN).filter(x => !x.weg && x.text && Date.now() / 1000 - x.t < 7 * 86400).sort((a, b) => b.t - a.t);
+  const gh = g.length ? `<div class=hinweis style="margin:14px 0 4px"><b>Gesendet</b></div>` + g.map(x => `<div class=vzeile>
+      <span class=vtext>${esc(ipods[x.id] || x.id)}: ${esc(x.text)}</span><button class=zweit data-zurueck="${esc(x.id)}_${x.t}"
+      style="padding:4px 10px;font-size:13px">Zurückziehen</button></div>`).join('') : '';
+  const ng = document.getElementById('ngesendet');
+  if (ng.dataset.html != gh) {
+    ng.innerHTML = gh; ng.dataset.html = gh;
+    ng.querySelectorAll('[data-zurueck]').forEach(b => b.onclick = () => nachrichtZurueck(NACHRICHTEN[b.dataset.zurueck], b));
   }
   const s = document.getElementById('nwer'), alt = s.value;
   const html = Object.entries(ipods).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
   if (s.dataset.html != html) { s.innerHTML = html; s.dataset.html = html; if (ipods[alt]) s.value = alt; }
+}
+async function nachrichtZurueck(x, knopf) {
+  if (!x) return;
+  knopf.disabled = true;
+  try {
+    await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-stand',
+      message: JSON.stringify({v: 1, typ: 'nachricht', id: x.id, t: x.t, weg: true})})});
+    aufnehmen(JSON.stringify({v: 1, typ: 'nachricht', id: x.id, t: x.t, weg: true}));
+    zeichnen();
+  } catch (e) { knopf.disabled = false; knopf.textContent = 'Ging nicht'; }
 }
 async function nachrichtSenden() {
   const id = document.getElementById('nwer').value, feld = document.getElementById('ntext'), st = document.getElementById('nstatus');
@@ -326,6 +349,7 @@ async function nachrichtSenden() {
       tags: ['geraet-' + id, 'nachricht'], click: linkFuer(id)})});
     await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-stand', message: JSON.stringify(n)})});
     feld.value = ''; st.textContent = 'Gesendet ✓';
+    aufnehmen(JSON.stringify(n)); zeichnen();
   } catch (e) { st.textContent = 'Ging nicht – Internet da?'; }
 }
 function anfragenZeichnen() {
