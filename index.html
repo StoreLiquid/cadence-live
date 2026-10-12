@@ -271,7 +271,9 @@ function aufnehmen(text, anhang) {
     if (Date.now() / 1000 - g.t < 12 * 3600 && (!ANFRAGEN[g.pc] || ANFRAGEN[g.pc].t < g.t)) ANFRAGEN[g.pc] = g;
     return;
   }
-  if (!g || g.v != 1 || !/^iPod-[0-9a-f]{6}$/.test(g.id || '')) return;   // nur echte iPods (keine Test-Einträge)
+  // nur echte iPod-Stände: die haben kein „typ“ - eine unbekannte Art (neuer als diese App) nie als iPod zeigen
+  // (12.10.2026: „name“ erschien in einer alten App als „iPod Bruder · undefined %“)
+  if (!g || g.v != 1 || g.typ || !/^iPod-[0-9a-f]{6}$/.test(g.id || '')) return;
   if (NUR && g.id != NUR) return;
   const alt = GERAETE[g.id];
   if (alt && alt.t > g.t) return;
