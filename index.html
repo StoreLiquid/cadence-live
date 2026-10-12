@@ -237,7 +237,13 @@ function aufnehmen(text, anhang) {
     if (!/^iPod-[0-9a-f]{6}$/.test(g.id || '') || (NUR && g.id != NUR)) return;
     const k = g.id + '_' + g.t;      // weg: vom Betreuer zurückgezogen (bleibt weg, egal in welcher Reihenfolge es ankommt)
     if (g.weg) NACHRICHTEN[k] = Object.assign({}, NACHRICHTEN[k] || g, {weg: true});
-    else if (!NACHRICHTEN[k]) NACHRICHTEN[k] = g;
+    else NACHRICHTEN[k] = Object.assign({}, g, NACHRICHTEN[k] || {});
+    return;
+  }
+  if (g && g.v == 1 && g.typ == 'gelesen') {      // Besitzer hat „Gelesen ✓“ getippt (Nutzer 12.10.2026)
+    if (!/^iPod-[0-9a-f]{6}$/.test(g.id || '') || (NUR && g.id != NUR)) return;
+    const k = g.id + '_' + g.nt;     // kann vor der Nachricht selbst ankommen
+    NACHRICHTEN[k] = Object.assign({id: g.id, t: g.nt}, NACHRICHTEN[k] || {}, {gelesen: g.t});
     return;
   }
   if (g && g.v == 1 && g.typ == 'anfrage') {
@@ -298,15 +304,35 @@ function aktualisiert(v) {
   return (VERLAUF.eintraege || []).concat(Object.values(GERAETE))
     .some(e => meins(e) && e.zustand == 'fertig' && e.nach && vGroesserGleich(e.nach, v));
 }
-// App des Besitzers: Nachrichten der letzten 7 Tage als Karte oben, bis „Erledigt“
+// Nachrichten (Nutzer 12.10.2026): je iPod gilt nur die NEUESTE - sie bleibt oben stehen, bis eine neue kommt,
+// sie gelesen wurde („Gelesen ✓“) oder 6 h vorbei sind
+const NACHRICHT_H = 6;
+function aktuelleNachricht(id) {
+  const n = Object.values(NACHRICHTEN).filter(x => x.id == id && x.t && Date.now() / 1000 - x.t < NACHRICHT_H * 3600)
+    .sort((a, b) => b.t - a.t)[0];
+  return n && !n.weg && n.text ? n : null;      // zurückgezogen: es taucht keine ältere wieder auf
+}
 function nachrichtenZeichnen() {
   const el = document.getElementById('nachrichten');
-  if (!NUR) { el.innerHTML = ''; return; }
-  const n = Object.values(NACHRICHTEN).filter(x => !x.weg && x.text && Date.now() / 1000 - x.t < 7 * 86400 && !speicher('nachricht_weg_' + x.t))
-    .sort((a, b) => b.t - a.t).slice(0, 3);
-  el.innerHTML = n.map(x => `<div class="karte nachricht"><b>💬 Nachricht von Aaron</b><span class=vzeit style="float:right">${datum(x.t)}</span>
-    <div class=ntext>${esc(x.text)}</div><button class=zweit data-nweg="${x.t}">Erledigt</button></div>`).join('');
-  el.querySelectorAll('[data-nweg]').forEach(b => b.onclick = () => { speicher('nachricht_weg_' + b.dataset.nweg, '1'); nachrichtenZeichnen(); });
+  const x = NUR && aktuelleNachricht(NUR);
+  if (!x || x.gelesen || speicher('nachricht_weg_' + x.t)) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="karte nachricht"><b>💬 Nachricht von Aaron</b><span class=vzeit style="float:right">${datum(x.t)}</span>
+    <div class=ntext>${esc(x.text)}</div><button class=zweit id=ngelesen>Gelesen ✓</button></div>`;
+  document.getElementById('ngelesen').onclick = () => nachrichtGelesen(x);
+}
+async function nachrichtGelesen(x) {
+  speicher('nachricht_weg_' + x.t, '1');
+  const g = {v: 1, typ: 'gelesen', id: x.id, nt: x.t, t: Math.floor(Date.now() / 1000)};
+  aufnehmen(JSON.stringify(g)); nachrichtenZeichnen();
+  const e = (VERLAUF.eintraege || []).concat(Object.values(GERAETE)).find(e => e.id == x.id);
+  const wer = e && (e.pc || e.name) || 'Er';
+  try {
+    // Mitteilung nur an den Betreuer („betreuer“: der Pi schickt sie an keine iPod-App) + Haken in seiner App
+    await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL, title: '✓ Nachricht gelesen',
+      message: `${wer} hat deine Nachricht gelesen: „${x.text.length > 80 ? x.text.slice(0, 80) + '…' : x.text}“`,
+      tags: ['geraet-' + x.id, 'betreuer', 'gelesen'], click: LINK})});
+    await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-stand', message: JSON.stringify(g)})});
+  } catch (e) {}
 }
 // Betreuer-App: gemeldete Probleme (Foto + Notiz) oben, bis „Erledigt“ (Nutzer 11.10.2026)
 function problemeZeichnen() {
@@ -413,11 +439,12 @@ function sendenZeichnen() {
       <div id=ngesendet></div></div>`;
     document.getElementById('nsenden').onclick = nachrichtSenden;
   }
-  // gesendete Nachrichten (7 Tage) mit „Zurückziehen“ (Nutzer 11.10.2026)
-  const g = Object.values(NACHRICHTEN).filter(x => !x.weg && x.text && Date.now() / 1000 - x.t < 7 * 86400).sort((a, b) => b.t - a.t);
+  // gerade aktive Nachricht je iPod (6 h) mit „Gelesen“-Haken bzw. „Zurückziehen“ (Nutzer 11./12.10.2026)
+  const g = [...new Set(Object.values(NACHRICHTEN).map(x => x.id))].map(aktuelleNachricht).filter(Boolean).sort((a, b) => b.t - a.t);
   const gh = g.length ? `<div class=hinweis style="margin:14px 0 4px"><b>Gesendet</b></div>` + g.map(x => `<div class=vzeile>
-      <span class=vtext>${esc(ipods[x.id] || x.id)}: ${esc(x.text)}</span><button class=zweit data-zurueck="${esc(x.id)}_${x.t}"
-      style="padding:4px 10px;font-size:13px">Zurückziehen</button></div>`).join('') : '';
+      <span class=vtext>${esc(ipods[x.id] || x.id)}: ${esc(x.text)}</span>${x.gelesen
+      ? `<span class=vzeit>gelesen ✓ ${datum(x.gelesen).split(', ')[1]}</span>`
+      : `<button class=zweit data-zurueck="${esc(x.id)}_${x.t}" style="padding:4px 10px;font-size:13px">Zurückziehen</button>`}</div>`).join('') : '';
   const ng = document.getElementById('ngesendet');
   if (ng.dataset.html != gh) {
     ng.innerHTML = gh; ng.dataset.html = gh;
