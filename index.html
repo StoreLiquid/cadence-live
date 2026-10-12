@@ -43,7 +43,7 @@ header h1 { white-space:nowrap; }
 .problem img { width:84px; height:112px; object-fit:cover; border-radius:10px; flex:none; cursor:pointer; }
 .problem button { margin-top:8px; padding:4px 10px; font-size:13px; }
 .nachricht .ntext { font-size:17px; margin:6px 0 10px; white-space:pre-wrap; }
-#senden select, #senden textarea, #fotokarte select, #akku select { width:100%; box-sizing:border-box; background:#15151b; color:var(--text);
+#senden select, #senden textarea, #fotokarte select, #akku select, #akku input { width:100%; box-sizing:border-box; background:#15151b; color:var(--text);
   border:1px solid var(--rand); border-radius:12px; padding:10px; font:inherit; margin-top:8px; }
 #senden textarea { min-height:70px; resize:vertical; }
 .verb i { width:8px; height:8px; border-radius:50%; background:var(--sub); }
@@ -190,7 +190,10 @@ let RELEASE = null;          // neueste cadence-Version {version, notiz, t}
 let VERLAUF = {eintraege: []};   // letzte fertige Updates
 const FOTOS = {};           // id + t -> gemeldetes Problem {id, wer, notiz, t, url}
 const NACHRICHTEN = {};      // id + t -> Nachricht vom Betreuer {id, text, t}
-let AKKU = {}, AKKU_T = 0;   // 4.50.7: iPod-Kennung -> Akkugröße in mAh (Betreuer wählt, cadence übernimmt)
+let AKKU = {}, AKKU_T = 0;
+let NAMEN = {}, NAMEN_T = 0; // 4.50.7: iPod-Kennung -> eigener Name (nur Betreuer-App, Nutzer 12.10.2026)
+// Name eines iPods: eigener Name aus der Betreuer-App, sonst „iPod Classic · iPod von …“ wie von cadence gemeldet
+const ipodName = e => NAMEN[e.id] || `${e.name || 'iPod'}${e.pc ? ' · ' + e.pc : ''}`;   // 4.50.7: iPod-Kennung -> Akkugröße in mAh (Betreuer wählt, cadence übernimmt)
 // „Letzte Updates“ ohne den eigenen iPod des Betreuers (Nutzer 09.10.2026, am Namen) - laufende Updates zeigt die App
 // weiter; so sieht z. B. der Bruder in seiner Liste nur seine eigenen Updates
 const EIGENE = ['ipod von aaron'];
@@ -200,7 +203,7 @@ function verlaufHtml(id) {
   const v = (VERLAUF.eintraege || []).filter(e => (!id || e.id == id) && (NUR ? e.id == NUR : !eigener(e))).slice(0, 8);
   if (!v.length) return '';
   return `<div class=karte><div class=hinweis style="margin-bottom:6px"><b>Letzte Updates</b></div>${v.map(e => `
-    <div class=vzeile><span class="punkt ${e.zustand}"></span><span class=vtext>${esc(e.pc || e.name)}${e.von || e.nach ?
+    <div class=vzeile><span class="punkt ${e.zustand}"></span><span class=vtext>${esc(NAMEN[e.id] || e.pc || e.name)}${e.von || e.nach ?
       ` · ${esc(e.von || '?')} → ${esc(e.nach || '?')}` : ''}</span><span class=vzeit>${datum(e.t)} · ${
       Math.max(1, Math.round((e.t - e.start) / 60))} min</span></div>`).join('')}</div>`;
 }
@@ -239,6 +242,15 @@ function aufnehmen(text, anhang) {
     if (NUR) return;
     if (g.liste) { if (g.t >= AKKU_T) { AKKU = Object.assign({}, g.liste); AKKU_T = g.t; } }
     else if (/^iPod-[0-9a-f]{6}$/.test(g.id || '') && g.t >= AKKU_T) { AKKU[g.id] = g.mah; AKKU_T = g.t; }
+    return;
+  }
+  if (g && g.v == 1 && g.typ == 'name') {         // eigener Name je iPod (Nutzer 12.10.2026): Liste vom Pi oder eine Änderung
+    if (NUR) return;
+    if (g.liste) { if (g.t >= NAMEN_T) { NAMEN = Object.assign({}, g.liste); NAMEN_T = g.t; } }
+    else if (/^iPod-[0-9a-f]{6}$/.test(g.id || '') && g.t >= NAMEN_T) {
+      if (g.name) NAMEN[g.id] = g.name; else delete NAMEN[g.id];
+      NAMEN_T = g.t;
+    }
     return;
   }
   if (g && g.v == 1 && g.typ == 'nachricht') {    // Nachricht an einen iPod-Besitzer (Nutzer 11.10.2026)
@@ -333,7 +345,7 @@ async function nachrichtGelesen(x) {
   const g = {v: 1, typ: 'gelesen', id: x.id, nt: x.t, t: Math.floor(Date.now() / 1000)};
   aufnehmen(JSON.stringify(g)); nachrichtenZeichnen();
   const e = (VERLAUF.eintraege || []).concat(Object.values(GERAETE)).find(e => e.id == x.id);
-  const wer = e && (e.pc || e.name) || 'Er';
+  const wer = e && (NAMEN[e.id] || e.pc || e.name) || 'Er';
   try {
     // Mitteilung nur an den Betreuer („betreuer“: der Pi schickt sie an keine iPod-App) + Haken in seiner App
     await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL, title: '✓ Nachricht gelesen',
@@ -368,14 +380,14 @@ function problemeZeichnen() {
 function bekannteIpods() {
   const m = {};
   for (const e of (VERLAUF.eintraege || []).concat(Object.values(GERAETE)))
-    if (/^iPod-[0-9a-f]{6}$/.test(e.id || '') && !eigener(e) && !m[e.id]) m[e.id] = `${e.name || 'iPod'}${e.pc ? ' · ' + e.pc : ''}`;
+    if (/^iPod-[0-9a-f]{6}$/.test(e.id || '') && !eigener(e) && !m[e.id]) m[e.id] = ipodName(e);
   return m;
 }
 // „📷 Problem melden“ (Nutzer 11.10.2026): Foto vom iPod-Bildschirm + Notiz -> Pi legt es neben die Protokolle (GitHub)
 function alleIpods() {
   const m = {};
   for (const e of (VERLAUF.eintraege || []).concat(Object.values(GERAETE)))
-    if (/^iPod-[0-9a-f]{6}$/.test(e.id || '') && !m[e.id]) m[e.id] = `${e.name || 'iPod'}${e.pc ? ' · ' + e.pc : ''}`;
+    if (/^iPod-[0-9a-f]{6}$/.test(e.id || '') && !m[e.id]) m[e.id] = ipodName(e);
   return m;
 }
 function fotoZeichnen() {
@@ -470,14 +482,41 @@ function akkuZeichnen() {
   const wahl = mah => [['', 'nicht festgelegt'], [650, '650 mAh (normaler Akku)'], [3600, '3600 mAh (großer Akku)']]
     .concat(mah && ![650, 3600].includes(+mah) ? [[mah, mah + ' mAh']] : [])
     .map(([w, t]) => `<option value="${w}"${String(w) == String(mah || '') ? ' selected' : ''}>${t}</option>`).join('');
-  const html = `<div class=karte><b>🔋 Akku</b>
-    <div class=hinweis style="margin-top:4px">cadence stellt die Akkugröße beim nächsten Anstecken am iPod ein.</div>
-    ${Object.entries(ipods).map(([id, name]) => `<div style="margin-top:10px"><div class=hinweis>${esc(name)}</div>
-      <select data-akku="${esc(id)}">${wahl(AKKU[id])}</select></div>`).join('')}
+  // 4.50.7 (Nutzer 12.10.2026): eigener Name je iPod, damit „iPod Video Aaron“ / „iPod Classic Aaron“ / „iPod Bruder“
+  // auseinanderzuhalten sind - steht dann überall in der App statt „iPod Classic · iPod von …“
+  const roh = alleIpodsRoh();
+  const html = `<div class=karte><b>📱 Meine iPods</b>
+    <div class=hinweis style="margin-top:4px">Name nur für dich. Die Akkugröße stellt cadence beim nächsten Anstecken am iPod ein.</div>
+    ${Object.keys(ipods).map(id => { const g = roh[id] || {};
+      return `<div style="margin-top:12px"><div class=hinweis>${esc(`${g.name || 'iPod'}${g.pc ? ' · ' + g.pc : ''}`)}</div>
+      <input data-name="${esc(id)}" value="${esc(NAMEN[id] || '')}" placeholder="Name, z. B. iPod Bruder" maxlength=40 enterkeyhint=done>
+      <select data-akku="${esc(id)}" style="margin-top:6px">${wahl(AKKU[id])}</select></div>`; }).join('')}
     <div class=hinweis id=akkustatus style="margin-top:8px"></div></div>`;
   if (el.dataset.html == html) return;
   el.innerHTML = html; el.dataset.html = html;
   el.querySelectorAll('[data-akku]').forEach(s => s.onchange = () => akkuSenden(s.dataset.akku, +s.value, s));
+  el.querySelectorAll('[data-name]').forEach(f => {
+    f.onchange = () => nameSenden(f.dataset.name, f.value, f);
+    f.onkeydown = ev => { if (ev.key == 'Enter') f.blur(); };
+  });
+}
+// Rohdaten je iPod (Modell + Name, wie cadence sie meldet) - graue Zeile über dem eigenen Namen
+function alleIpodsRoh() {
+  const m = {};
+  for (const e of (VERLAUF.eintraege || []).concat(Object.values(GERAETE)))
+    if (/^iPod-[0-9a-f]{6}$/.test(e.id || '') && !m[e.id]) m[e.id] = e;
+  return m;
+}
+async function nameSenden(id, name, feld) {
+  const st = document.getElementById('akkustatus');
+  const n = {v: 1, typ: 'name', id, name: name.trim().replace(/\s+/g, ' ').slice(0, 40), t: Math.floor(Date.now() / 1000)};
+  feld.disabled = true;
+  try {
+    await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-stand', message: JSON.stringify(n)})});
+    aufnehmen(JSON.stringify(n)); zeichnen();
+    st.textContent = 'Gespeichert ✓';
+  } catch (e) { st.textContent = 'Ging nicht – Internet da?'; }
+  feld.disabled = false;
 }
 async function akkuSenden(id, mah, feld) {
   const st = document.getElementById('akkustatus');
@@ -561,7 +600,7 @@ function zeichnenInnen() {
   }
   if (!ids.includes(WAHL)) WAHL = ids[0];
   document.getElementById('chips').innerHTML = ids.map(id => { const g = GERAETE[id];
-    return `<div class="chip ${id == WAHL ? 'an' : ''}" data-id="${esc(id)}"><span class="punkt ${zustand(g)}"></span>${esc(g.name)}<small>${esc(g.pc)}</small></div>`; }).join('');
+    return `<div class="chip ${id == WAHL ? 'an' : ''}" data-id="${esc(id)}"><span class="punkt ${zustand(g)}"></span>${NAMEN[id] ? esc(NAMEN[id]) : `${esc(g.name)}<small>${esc(g.pc)}</small>`}</div>`; }).join('');
   document.querySelectorAll('.chip').forEach(c => c.onclick = () => { WAHL = c.dataset.id; zeichnen(); });
   const g = GERAETE[WAHL];
   if (!g) return;
@@ -571,7 +610,7 @@ function zeichnenInnen() {
   const titel = {laeuft: 'läuft', fertig: 'fertig', fehler: 'Fehler', still: 'kein Lebenszeichen'}[z];
   document.getElementById('haupt').innerHTML = `
   <div class=karte>
-    <div class=kopf><div class=wer><b>${esc(g.name)} · ${esc(g.pc)}</b>
+    <div class=kopf><div class=wer><b>${esc(ipodName(g))}</b>
       <span>${esc(g.art)}${g.von || g.nach ? ` · ${esc(g.von || '?')} → ${esc(g.nach || '?')}` : ''} · ${titel}</span></div>
       <div class=zahl>${z == 'fertig' ? 100 : g.gesamt}<small> %</small></div></div>
     <div class="balken ${z == 'fertig' ? 'fertig' : z == 'fehler' ? 'fehler' : ''}"><div style="width:${z == 'fertig' ? 100 : g.gesamt}%"></div></div>
@@ -595,13 +634,13 @@ function zeichnenInnen() {
 document.addEventListener('click', async e => {
   if (e.target && e.target.id == 'logkopie' && GERAETE[WAHL]) {
     const g = GERAETE[WAHL];
-    const text = `cadence – ${g.name} · ${g.pc}, ${g.art} ${g.von || '?'} → ${g.nach || '?'}, ${datum(g.t)}\n\n${(g.log || []).join('\n')}`;
+    const text = `cadence – ${ipodName(g)}, ${g.art} ${g.von || '?'} → ${g.nach || '?'}, ${datum(g.t)}\n\n${(g.log || []).join('\n')}`;
     try { await navigator.clipboard.writeText(text); e.target.textContent = 'Kopiert ✓'; } catch (x) { prompt('Protokoll:', text); }
     return;
   }
   if (e.target && e.target.id == 'fehlerkopie' && GERAETE[WAHL]) {      // zum Weiterschicken (z. B. an Claude)
     const g = GERAETE[WAHL];
-    const text = `cadence-Fehler – ${g.name} · ${g.pc}, ${g.art} ${g.von || '?'} → ${g.nach || '?'}, ${datum(g.t)}\n` +
+    const text = `cadence-Fehler – ${ipodName(g)}, ${g.art} ${g.von || '?'} → ${g.nach || '?'}, ${datum(g.t)}\n` +
                  `Schritt: ${(g.schritte || []).find(s => s.z == 'l')?.n || '?'}\n${g.fertig || ''}\n\n${(g.log || []).join('\n')}`;
     try { await navigator.clipboard.writeText(text); e.target.textContent = 'Kopiert ✓'; }
     catch (x) { prompt('Fehler kopieren:', text); }
