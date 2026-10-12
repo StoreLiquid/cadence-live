@@ -43,7 +43,7 @@ header h1 { white-space:nowrap; }
 .problem img { width:84px; height:112px; object-fit:cover; border-radius:10px; flex:none; cursor:pointer; }
 .problem button { margin-top:8px; padding:4px 10px; font-size:13px; }
 .nachricht .ntext { font-size:17px; margin:6px 0 10px; white-space:pre-wrap; }
-#senden select, #senden textarea, #fotokarte select { width:100%; box-sizing:border-box; background:#15151b; color:var(--text);
+#senden select, #senden textarea, #fotokarte select, #akku select { width:100%; box-sizing:border-box; background:#15151b; color:var(--text);
   border:1px solid var(--rand); border-radius:12px; padding:10px; font:inherit; margin-top:8px; }
 #senden textarea { min-height:70px; resize:vertical; }
 .verb i { width:8px; height:8px; border-radius:50%; background:var(--sub); }
@@ -172,6 +172,7 @@ body.gezogen main, body.gezogen #chips { transition:transform .35s cubic-bezier(
 <div class=chips id=chips></div>
 <main id=haupt><div class=leer><img src="logo-180.png" alt=""><div>Warte auf Meldungen …</div></div></main>
 <div id=senden></div>
+<div id=akku></div>
 <div id=fotokarte></div>
 <input type=file id=fotowahl accept="image/*" hidden>
 <div class="karte hinweis" id=hilfe></div>
@@ -189,6 +190,7 @@ let RELEASE = null;          // neueste cadence-Version {version, notiz, t}
 let VERLAUF = {eintraege: []};   // letzte fertige Updates
 const FOTOS = {};           // id + t -> gemeldetes Problem {id, wer, notiz, t, url}
 const NACHRICHTEN = {};      // id + t -> Nachricht vom Betreuer {id, text, t}
+let AKKU = {}, AKKU_T = 0;   // 4.50.7: iPod-Kennung -> Akkugröße in mAh (Betreuer wählt, cadence übernimmt)
 // „Letzte Updates“ ohne den eigenen iPod des Betreuers (Nutzer 09.10.2026, am Namen) - laufende Updates zeigt die App
 // weiter; so sieht z. B. der Bruder in seiner Liste nur seine eigenen Updates
 const EIGENE = ['ipod von aaron'];
@@ -231,6 +233,12 @@ function aufnehmen(text, anhang) {
     const k = g.id + '_' + g.t;
     if (g.weg) FOTOS[k] = Object.assign({}, FOTOS[k] || g, {weg: true});
     else if (!FOTOS[k] || !FOTOS[k].weg) FOTOS[k] = Object.assign({}, g, {url: anhang && anhang.url || (FOTOS[k] || {}).url});
+    return;
+  }
+  if (g && g.v == 1 && g.typ == 'akku') {         // Akkugröße je iPod (Nutzer 12.10.2026): Liste vom Pi oder eine Wahl
+    if (NUR) return;
+    if (g.liste) { if (g.t >= AKKU_T) { AKKU = Object.assign({}, g.liste); AKKU_T = g.t; } }
+    else if (/^iPod-[0-9a-f]{6}$/.test(g.id || '') && g.t >= AKKU_T) { AKKU[g.id] = g.mah; AKKU_T = g.t; }
     return;
   }
   if (g && g.v == 1 && g.typ == 'nachricht') {    // Nachricht an einen iPod-Besitzer (Nutzer 11.10.2026)
@@ -454,6 +462,34 @@ function sendenZeichnen() {
   const html = Object.entries(ipods).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
   if (s.dataset.html != html) { s.innerHTML = html; s.dataset.html = html; if (ipods[alt]) s.value = alt; }
 }
+// Betreuer-App: Akkugröße je iPod (Nutzer 12.10.2026, Classic des Bruders 3600 mAh) - cadence trägt sie beim Anstecken ein
+function akkuZeichnen() {
+  const el = document.getElementById('akku');
+  const ipods = alleIpods();
+  if (NUR || !Object.keys(ipods).length) { el.innerHTML = ''; el.dataset.html = ''; return; }
+  const wahl = mah => [['', 'nicht festgelegt'], [650, '650 mAh (normaler Akku)'], [3600, '3600 mAh (großer Akku)']]
+    .concat(mah && ![650, 3600].includes(+mah) ? [[mah, mah + ' mAh']] : [])
+    .map(([w, t]) => `<option value="${w}"${String(w) == String(mah || '') ? ' selected' : ''}>${t}</option>`).join('');
+  const html = `<div class=karte><b>🔋 Akku</b>
+    <div class=hinweis style="margin-top:4px">cadence stellt die Akkugröße beim nächsten Anstecken am iPod ein.</div>
+    ${Object.entries(ipods).map(([id, name]) => `<div style="margin-top:10px"><div class=hinweis>${esc(name)}</div>
+      <select data-akku="${esc(id)}">${wahl(AKKU[id])}</select></div>`).join('')}
+    <div class=hinweis id=akkustatus style="margin-top:8px"></div></div>`;
+  if (el.dataset.html == html) return;
+  el.innerHTML = html; el.dataset.html = html;
+  el.querySelectorAll('[data-akku]').forEach(s => s.onchange = () => akkuSenden(s.dataset.akku, +s.value, s));
+}
+async function akkuSenden(id, mah, feld) {
+  const st = document.getElementById('akkustatus');
+  if (!mah) { st.textContent = 'Bitte eine Größe wählen.'; return; }
+  const a = {v: 1, typ: 'akku', id, mah, t: Math.floor(Date.now() / 1000)};
+  feld.disabled = true;
+  try {
+    await fetch(SERVER, {method: 'POST', body: JSON.stringify({topic: KANAL + '-stand', message: JSON.stringify(a)})});
+    aufnehmen(JSON.stringify(a)); zeichnen();
+    document.getElementById('akkustatus').textContent = 'Gespeichert ✓';
+  } catch (e) { feld.disabled = false; st.textContent = 'Ging nicht – Internet da?'; }
+}
 async function nachrichtZurueck(x, knopf) {
   if (!x) return;
   knopf.disabled = true;
@@ -513,6 +549,7 @@ function zeichnenInnen() {
   problemeZeichnen();
   anfragenZeichnen();
   sendenZeichnen();
+  akkuZeichnen();
   fotoZeichnen();
   const ids = Object.keys(GERAETE).filter(id => sichtbar(GERAETE[id])).sort((a, b) => GERAETE[b].t - GERAETE[a].t);
   if (!ids.length) {
