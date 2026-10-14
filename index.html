@@ -177,7 +177,8 @@ body.gezogen main, body.gezogen #chips { transition:transform .35s cubic-bezier(
 <input type=file id=fotowahl accept="image/*" hidden>
 <div class="karte hinweis" id=hilfe></div>
 <script>
-const SERVER = 'https://ntfy.sh/';
+const SERVER = 'https://live.elara-hub.com/';   // 14.10.2026: eigener Briefkasten auf dem Pi (kein Tageslimit)
+const ALT = 'https://ntfy.sh/';                 // Übergang: ältere cadence-Fassungen schicken noch dorthin
 // Kanal hinter dem #; gemerkt, falls die Home-Bildschirm-App ohne # startet
 const KANAL = (() => { let k = decodeURIComponent(location.hash.slice(1)).trim();
   try { if (k) localStorage.setItem('kanal', k); else k = localStorage.getItem('kanal') || ''; } catch (e) {}
@@ -705,17 +706,30 @@ async function mitteilungen() {
 }
 // Erst alles der letzten 12 h holen, dann live (SSE). iOS (Home-Bildschirm) hält SSE oft nicht offen -> zusätzlich
 // alle 20 s abfragen; „live“ = SSE offen oder letzte Abfrage vor < 60 s geklappt
-let SSE_AN = false, ABFRAGE_OK = 0, SEIT = '12h';
+let SSE_AN = false, ABFRAGE_OK = 0, SEIT = '12h', SEIT_ALT = '12h';
 async function archiv() {
+  for (const srv of [ALT, SERVER]) {      // neuer Briefkasten zuletzt: bei Gleichstand gewinnt er
+    try {
+      const r = await fetch(`${srv}${encodeURIComponent(KANAL)}-archiv/json?poll=1&since=12h`, {cache: 'no-store'});
+      for (const z of (await r.text()).split('\n')) {
+        if (!z.trim()) continue;
+        try { const m = JSON.parse(z); if (m.event == 'message') aufnehmen(m.message, m.attachment); } catch (e) {}
+      }
+    } catch (e) {}
+  }
+}
+async function abfragenAlt() {            // Übergang: Stände älterer cadence-Fassungen (ntfy.sh)
   try {
-    const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-archiv/json?poll=1&since=12h`, {cache: 'no-store'});
+    const r = await fetch(`${ALT}${encodeURIComponent(KANAL)}-stand/json?poll=1&since=${SEIT_ALT}`, {cache: 'no-store'});
+    if (!r.ok) return;
     for (const z of (await r.text()).split('\n')) {
       if (!z.trim()) continue;
-      try { const m = JSON.parse(z); if (m.event == 'message') aufnehmen(m.message, m.attachment); } catch (e) {}
+      try { const m = JSON.parse(z); if (m.event == 'message') { aufnehmen(m.message); SEIT_ALT = m.id; } } catch (e) {}
     }
   } catch (e) {}
 }
 async function abfragen() {
+  await abfragenAlt();
   try {
     const r = await fetch(`${SERVER}${encodeURIComponent(KANAL)}-stand/json?poll=1&since=${SEIT}`, {cache: 'no-store'});
     if (!r.ok) throw new Error(r.status);
