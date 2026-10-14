@@ -305,7 +305,9 @@ function releaseZeichnen() {
     <ul class=kurzliste>${haupt.map(x => `<li>${esc(x.split(':')[0])}</li>`).join('')}</ul>
     <details data-k="rel"><summary>Alles anzeigen</summary><ul>${haupt.map(li).join('')}</ul>
       ${rest.length ? `<div class=hinweis style="margin-top:8px"><b>Sonstiges</b></div><ul>${rest.map(li).join('')}</ul>` : ''}</details>
-    <div class=hinweis style="margin-top:10px">Empfohlen: in cadence am Computer „iPod aktualisieren“.</div></div>`;
+    <div class=hinweis style="margin-top:10px">${r.firmware && r.firmware != r.version
+      ? 'Nur das Programm ist neu – cadence am Computer öffnen, es aktualisiert sich von selbst. Der iPod muss nicht aktualisiert werden.'
+      : 'Empfohlen: in cadence am Computer „iPod aktualisieren“.'}</div></div>`;
   const x = document.getElementById('relweg');
   if (x) x.onclick = () => { speicher('release_weg_' + r.version, '1'); releaseZeichnen(); };
 }
